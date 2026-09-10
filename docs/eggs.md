@@ -227,7 +227,8 @@ s2c 0x0243 ZoneGoodsRewardNotify{goods_reward.rewards{id=蛋物品, gids=新蛋 
 - **破壳**:`0x030b ZoneCrackEggReq{egg_gid, select_ball_gid}`(要选一个精灵球道具的 gid)
   → `0x030c RSP` 里 `ret_info.goods_reward.rewards{type: GT_PET, first_get, pet_data{…}}`
   是**完整 PetData**,末尾 `hatched_pet_gid` 给出新宠物 gid。新宠物 `catch_way: 3`(孵化)、
-  `add_time` = 破壳时刻、`level: 1`、`ball_id` 取自所选球。蛋这件背包物品同时被 `OT_DEL`。
+  `add_time` = 破壳时刻、`level: 1`、`ball_id` 取自所选球。蛋这件背包物品同时离包
+  (早先此处记作 `OT_DEL`,是笔误:`OpType` 只有 ADD/SUB/SET,离包一律是 `OT_SET` + 数量归零,见下)。
 
 **身高/体重的百分位在破壳时原样保留**(实测两只,误差只在取整上):
 
@@ -267,6 +268,46 @@ s2c 0x0262 ZoneShopBuyItemRsp{ret_info.goods_change_info.changes[].bag_item.egg_
 `src: EAWT_NONE(0)`(**不是** `1=远行`,来源那栏因此留空),
 `max_hatched_secs` 每颗不同(28800/43200/57600),即前面说的「时长维才是可信的候选筛选维」。
 
+### 赠送与领取(2026-09-10 pcap)
+
+在大世界当面把一颗蛋送给别人,走通用的**玩家互动**(`InteractInviteType.IIT_GIFTING_EGG = 4`),
+没有蛋专用的 opcode,两端各一半:
+
+```
+送出方 c2s 0x1597 ZoneSceneRelationInteractInviteReq{
+          interact_type: IIT_GIFTING_EGG, broadcast: true,
+          param{action_id: 8, picked_egg_gid: 3498, picked_bagitem_conf_id: 107226}}
+       s2c 0x1598 RSP(只有 ret_info/ban_info)   ← 摆出「等人来领」的姿势
+领取方 c2s 0x159b ZoneSceneRelationInteractAcceptReq{target_uin: 送出方 uin, 同一份 interact_type/param}
+       s2c 0x159c RSP(原样回显)
+       s2c 0x0243 ZoneGoodsRewardNotify         ← 蛋进包
+两边   c2s 0x15ed ZoneSceneRelationInteractEndReq{interact_type} → 0x15ee(动作收尾)
+```
+
+`param.picked_egg_gid` 是**送出方背包里**那颗蛋的 gid,领取方原样带回去指认要领哪颗
+(本次:先从陌生人处领了 `2988`,转手送出时报的是它在自己包里的新号 `3498` ——
+背包物品 gid 每个玩家各自一套,同一颗蛋换手就换号,别拿它跨账号对齐)。
+
+两边的 `0x0243` 都是 `reward_source: 13`、`flow_reason: 133`(`FLOW_REASON_GIFT_GIVING`),
+区别只在那件 `bag_item` 的数量:
+
+| | `changes[].op` | `changes[].num` | `bag_item.num` | 含义 |
+| --- | --- | --- | --- | --- |
+| 领到 | `OT_SET` | 1 | 1 | 新 gid 进包;`goods_reward.rewards` 另有一条,`gids` 给出新 gid |
+| 送出 | `OT_SET` | 0 | 0 | 那颗蛋**离包**(`goods_reward` 是空壳) |
+
+**离包没有专门的 op**:`dataconfig.OpType` 只有 `OT_ADD`/`OT_SUB`/`OT_SET`,东西没了就是
+把数量 `OT_SET` 成 0,而 `bag_item` 照旧带着完整的 `egg_data` 一起发下来 —— 只认 `bag_item`
+就会把它当成一次普通更新原样写回库里,送出去的蛋于是一直挂在精灵蛋页上,直到玩家再开一次
+背包(`0x1344` 全量对账)才消失(这份 pcap 的两次 `0x1344` 都在赠送之前,故整份回放下来那颗
+蛋始终在)。`pet.ParseChangedEggs` 因此把「`op == OT_SET` 且两处 `num` 都为 0」的那条判成离包,
+gid 单独返回,交给 `pipeline.removeEggs` 当场删行。三个条件一起要,是防着哪条载体
+(入孵/取出/进度更新)不发 `num` 时把在包的蛋误删 —— 漏判最多晚到下次开背包才对账,误判则是当场丢一颗。
+
+领到的蛋 `src` 是 `EAWT_FRIEND_EX(3)`(页面显示「好友交换」),**与对方是不是好友无关**,
+本次就是商店街上的路人。`from_player_name`/`from_pet_name` 那组仍旧全空 ——
+它们只在赐福时才填(见 1)。
+
 ## 2. 在本项目里落地成了什么
 
 | 面向 | 落点 |
@@ -274,9 +315,9 @@ s2c 0x0262 ZoneShopBuyItemRsp{ret_info.goods_change_info.changes[].bag_item.egg_
 | 品类角标 | `gen_icons.py` 的 egg 组另收 `EGG_TYPE_CONF.small_icon`(图集精灵,8 张:异色/炫彩/珍贵/唯一…) |
 | 蛋图 | `gen_icons.py` 的 **egg 组**:`BAG_ITEM_CONF` 里 `type==8` 的 `icon`(整张贴图)→ `img/egg/<原名>.webp`,326 个唯一图标转出 307(19 个未上线物种的贴图没随包解出,Go 侧回退 `egg_tongyong`) |
 | 索引 | `gen_gamedata.py` 五张表:`egg_conf`(物种蛋区间 + 孵化秒数 + 蛋品类)、`egg_items`(蛋物品 → 显示名/物种/图标/窝上 NPC id/品质/排序号)、`egg_types`(蛋品类 → 名称/排序号/角标)、`size_medals`(按百分位自动授予的四枚奖牌)、`nest_furniture`(小窝家具,按 `interact_type==3` 取,当前两件:精灵小窝 1001071、学院小窝 1001072) |
-| 解析 | `internal/pet/egg.go`(BagItem+PetEggBrief、孵蛋器占用列表、破壳请求/回包、flow_reason)、`internal/scene/home.go`(home_info 的家具与配对、home_pet 实体、蛋 NPC 的 attach_item) |
+| 解析 | `internal/pet/egg.go`(BagItem+PetEggBrief、孵蛋器占用列表、破壳请求/回包、flow_reason、离包判定)、`internal/scene/home.go`(home_info 的家具与配对、home_pet 实体、蛋 NPC 的 attach_item) |
 | 入库 | `internal/store/egg.go` 的 `eggs` 表 = **背包现状**:蛋一行,`parents` 单列存**收蛋那一刻**的双亲快照(亲本被放生也不受影响);破壳/送人/背包对账不到的直接删行(页面只看背包,不留历史) |
-| 管线 | `internal/pipeline/eggs.go`(背包分页对账 + 收蛋/买蛋入库 + 孵蛋器占用订正 + 认领双亲 + 破壳删行)、`internal/pipeline/home.go`(小窝图层的实时状态与推送) |
+| 管线 | `internal/pipeline/eggs.go`(背包分页对账 + 收蛋/买蛋入库 + 孵蛋器占用订正 + 认领双亲 + 破壳/送人删行)、`internal/pipeline/home.go`(小窝图层的实时状态与推送) |
 | 页面 | 精灵蛋页(`web/src/pages/eggs/`)与实时地图的小窝图层(`web/src/pages/map/useHomeNests.js`) |
 
 ### 蛋的品类与「品质排序」(复刻客户端)

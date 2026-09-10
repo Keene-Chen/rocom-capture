@@ -13,7 +13,8 @@ import (
 //
 // 蛋从四处露面,处理方式各异:
 //   - 0x1344 背包分页全量:入库 + 末页对账(不在背包的删掉,与宠物列表同一套路)
-//   - 0x0243 奖励通知:新得的蛋;flow_reason=223 即家园小窝下的蛋,顺手记双亲
+//   - 0x0243 奖励通知:新得的蛋(小窝收的、别人赠送的);flow_reason=223 即家园小窝下的蛋,顺手记双亲;
+//     **送出去的蛋也走这条**——同一份 bag_item 带着 op=OT_SET、num 归零发下来,见 removeEggs
 //   - 0x0262 商店购买:远行商人的「神奇的蛋」等,新蛋只在这条回包里下发(不另发奖励通知)
 //   - 0x0164 用道具 / 0x0300 取出 / 0x0312 孵化状态:同一颗蛋的进度更新(入孵时刻、已孵秒数)
 //   - 0x030b/0x030c 破壳:请求带 egg_gid,回包一到就把这颗蛋从库里删掉(它已不在背包里)
@@ -65,8 +66,9 @@ func (p *Pipeline) handleEgg(m capture.Message, acc string) {
 	case m.Direction == gcp.S2C && (m.Opcode == pet.OpGoodsRewardNotify ||
 		m.Opcode == pet.OpShopBuyItemRsp || m.Opcode == pet.OpUseBagItemRsp ||
 		m.Opcode == pet.OpStopHatchRsp || m.Opcode == pet.OpGetAllHatchStatusRsp):
-		eggs := pet.ParseChangedEggs(m.AppBody)
+		eggs, gone := pet.ParseChangedEggs(m.AppBody)
 		p.upsertEggs(sc, acc, eggs, m.Time)
+		p.removeEggs(sc, acc, gone)
 		// 孵化状态回包自带权威的槽位列表(刚放进去、进度还是 0 的那颗只有它说得准)。
 		if m.Opcode == pet.OpGetAllHatchStatusRsp {
 			if gids, ok := pet.HatchSlots(m.AppBody); ok {
@@ -78,6 +80,19 @@ func (p *Pipeline) handleEgg(m capture.Message, acc string) {
 			p.recordEggParents(m.Session, sc, eggs, m.Time)
 		}
 	}
+}
+
+// removeEggs 删掉已离包的蛋(赠送给别人、用掉…):库里只有背包现状,不留历史行。
+// 离包由 goods_change 里「OT_SET 且数量归零」认出(见 pet.ParseChangedEggs);
+// 不当场删的话,那颗蛋会一直挂在精灵蛋页上,直到玩家再开一次背包才被全量对账扫掉。
+func (p *Pipeline) removeEggs(sc *store.Scoped, acc string, gids []uint32) {
+	if len(gids) == 0 {
+		return
+	}
+	for _, gid := range gids {
+		sc.DeleteEgg(gid)
+	}
+	p.srv.Hub().Broadcast("eggs", acc, map[string]any{"account": acc})
 }
 
 // applyHatchSlots 用权威的孵蛋器占用列表订正在孵标记并通知前端。

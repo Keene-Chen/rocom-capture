@@ -6,13 +6,40 @@ import (
 	"google.golang.org/protobuf/encoding/protowire"
 )
 
-// eggBagItem 拼一件带 egg_data 的 BagItem:gid(1)/id(2)/update_time(4)/type(14)/egg_data(15)。
+// eggBagItem 拼一件带 egg_data 的 BagItem:gid(1)/id(2)/num(3)/update_time(4)/type(14)/egg_data(15)。
+// 蛋不可堆叠,在包里就是 num=1(离包那条另见 eggChange)。
 func eggBagItem(gid, id uint32, updated int32, brief []byte) []byte {
+	return eggBagItemNum(gid, id, 1, updated, brief)
+}
+
+func eggBagItemNum(gid, id uint32, num uint64, updated int32, brief []byte) []byte {
 	b := protowire.AppendVarint(protowire.AppendTag(nil, 1, protowire.VarintType), uint64(gid))
 	b = protowire.AppendVarint(protowire.AppendTag(b, 2, protowire.VarintType), uint64(id))
+	if num > 0 {
+		b = protowire.AppendVarint(protowire.AppendTag(b, 3, protowire.VarintType), num)
+	}
 	b = protowire.AppendVarint(protowire.AppendTag(b, 4, protowire.VarintType), uint64(uint32(updated)))
 	b = protowire.AppendVarint(protowire.AppendTag(b, 14, protowire.VarintType), EggItemType)
 	return protowire.AppendBytes(protowire.AppendTag(b, 15, protowire.BytesType), brief)
+}
+
+// eggChangeBody 把几条 GoodsChangeItem 包成一条带 ret_info 的消息:
+// ret_info(1).goods_change_info(4).changes(1){op(2), num(3), bag_item(4)}。
+func eggChangeBody(items ...[]byte) []byte {
+	var chg []byte
+	for _, it := range items {
+		chg = protowire.AppendBytes(protowire.AppendTag(chg, 1, protowire.BytesType), it)
+	}
+	ret := protowire.AppendBytes(protowire.AppendTag(nil, 4, protowire.BytesType), chg)
+	return protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), ret)
+}
+
+func eggChange(op, num uint64, item []byte) []byte {
+	b := protowire.AppendVarint(protowire.AppendTag(nil, 2, protowire.VarintType), op)
+	if num > 0 {
+		b = protowire.AppendVarint(protowire.AppendTag(b, 3, protowire.VarintType), num)
+	}
+	return protowire.AppendBytes(protowire.AppendTag(b, 4, protowire.BytesType), item)
 }
 
 // eggBrief 拼 PetEggBrief:conf_id(1)/height(2)/weight(3)/hatched(4)/update(5)/max(6)/start(9)/src(10)。
@@ -31,16 +58,12 @@ func eggBrief(conf uint32, h, w, hatched, update, max, start, src int32) []byte 
 }
 
 func TestParseChangedEggs(t *testing.T) {
-	// ret_info(1).goods_change_info(4).changes(1).bag_item(4)
 	item := eggBagItem(3093, 107028, 1786770791, eggBrief(3062001, 59, 21957, 0, 0, 57600, 0, 6))
-	chg := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType),
-		protowire.AppendBytes(protowire.AppendTag(nil, 4, protowire.BytesType), item))
-	ret := protowire.AppendBytes(protowire.AppendTag(nil, 4, protowire.BytesType), chg)
-	body := protowire.AppendBytes(protowire.AppendTag(nil, 1, protowire.BytesType), ret)
+	body := eggChangeBody(eggChange(OpTypeSet, 1, item))
 
-	eggs := ParseChangedEggs(body)
-	if len(eggs) != 1 {
-		t.Fatalf("蛋数 = %d, want 1", len(eggs))
+	eggs, gone := ParseChangedEggs(body)
+	if len(eggs) != 1 || len(gone) != 0 {
+		t.Fatalf("蛋数 = %d, 离包 = %d, want 1/0", len(eggs), len(gone))
 	}
 	e := eggs[0]
 	if e.Gid != 3093 || e.ItemID != 107028 || e.ConfID != 3062001 ||
@@ -55,8 +78,31 @@ func TestParseChangedEggs(t *testing.T) {
 	}
 	// 非蛋物品(无 egg_data)不该混进来
 	plain := protowire.AppendVarint(protowire.AppendTag(nil, 1, protowire.VarintType), 5)
-	if got := ParseChangedEggs(plain); len(got) != 0 {
+	if got, _ := ParseChangedEggs(plain); len(got) != 0 {
 		t.Errorf("非蛋消息解出了 %d 颗", len(got))
+	}
+}
+
+// 送人(2026-09-10 pcap):同一份 bag_item 带着 op=OT_SET、两处 num 归零发下来,
+// 认成离包而不是一次普通更新,否则送出去的蛋会一直留在精灵蛋页上。
+func TestParseChangedEggsRemoved(t *testing.T) {
+	brief := eggBrief(3736001, 24, 11667, 0, 0, 72000, 0, 3)
+	body := eggChangeBody(
+		eggChange(OpTypeSet, 0, eggBagItemNum(3498, 107226, 0, 1789043877, brief)),
+		eggChange(OpTypeSet, 1, eggBagItem(3499, 107226, 1789043877, brief)),
+	)
+	eggs, gone := ParseChangedEggs(body)
+	if len(gone) != 1 || gone[0] != 3498 {
+		t.Errorf("离包 = %v, want [3498]", gone)
+	}
+	if len(eggs) != 1 || eggs[0].Gid != 3499 {
+		t.Errorf("在包 = %+v, want gid 3499", eggs)
+	}
+
+	// 数量没归零的(入孵/取出/进度更新)照旧是更新;op 不是 OT_SET 时也不认离包。
+	keep := eggChangeBody(eggChange(0, 0, eggBagItemNum(3500, 107226, 0, 1789043877, brief)))
+	if eggs, gone := ParseChangedEggs(keep); len(gone) != 0 || len(eggs) != 1 {
+		t.Errorf("op=OT_ADD 时 = %d 在包 / %d 离包, want 1/0", len(eggs), len(gone))
 	}
 }
 

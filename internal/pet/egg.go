@@ -35,6 +35,7 @@ const EggItemType = 8
 type Egg struct {
 	Gid        uint32 // 背包物品 gid:蛋的唯一 id(孵化状态里的 egg_gid 即此)
 	ItemID     uint32 // 蛋物品 id(107028…),查 gamedata.EggItemInfo 得显示名/图标/物种
+	Num        uint64 // bag_item.num:这件物品的数量。蛋不可堆叠,恒为 1;**归零即离包**(见 ParseChangedEggs)
 	UpdateTime int32  // bag_item.update_time:进包/最后变更时刻,即「获得时间」
 	// 以下来自 egg_data(PetEggBrief)
 	ConfID      uint32 // 物种 conf_id;随机蛋(神奇的蛋)为 0
@@ -85,29 +86,47 @@ func ParseBagEggs(body []byte) (eggs []Egg, page, total uint32) {
 	return eggs, page, total
 }
 
-// ParseChangedEggs 从任意带 ret_info 的消息取 goods_change_info 里变更的精灵蛋。
-// 收蛋/入孵/孵化进度/破壳都经此路径下发同一份 BagItem。
-func ParseChangedEggs(body []byte) []Egg {
-	var out []Egg
+// ParseChangedEggs 从任意带 ret_info 的消息取 goods_change_info 里变更的精灵蛋:
+// changed 是新增/更新的蛋,removed 是**离包**的蛋 gid。
+// 收蛋/买蛋/入孵/孵化进度/破壳/送人都经此路径下发同一份 BagItem。
+//
+// **离包没有专门的 op**:`dataconfig.OpType` 只有 `OT_ADD`/`OT_SUB`/`OT_SET`,东西没了是
+// 「`OT_SET` 把数量设成 0」,`bag_item` 照旧带着完整的 `egg_data` 一起发下来
+// (2026-09-10 pcap:把蛋赠送给陌生人后收到的 `0x0243` 就是 op=OT_SET、change.num=0、
+// bag_item.num=0 的那颗蛋)。只看 `bag_item` 就会把它当成一次普通更新原样写回去,
+// 页面上那颗送出去的蛋便一直留着,直到玩家再开一次背包全量对账。
+// 判据取三者同时成立(op 是 OT_SET 且两处数量都归零),免得哪条载体漏发 num 时误删。
+func ParseChangedEggs(body []byte) (changed []Egg, removed []uint32) {
 	ret := wire.SubMsg(body, 1) // ret_info
 	if ret == nil {
-		return nil
+		return nil, nil
 	}
 	chg := wire.SubMsg(ret, 4) // goods_change_info(GoodsChange)
 	if chg == nil {
-		return nil
+		return nil, nil
 	}
 	for _, c := range wire.Subs(chg, 1) { // changes(GoodsChangeItem)
 		bi := wire.SubMsg(c, 4) // bag_item
 		if bi == nil {
 			continue
 		}
-		if e, ok := parseBagItemEgg(bi); ok {
-			out = append(out, e)
+		e, ok := parseBagItemEgg(bi)
+		if !ok {
+			continue
 		}
+		op, _ := wire.Varint(c, 2)  // op(OpType)
+		num, _ := wire.Varint(c, 3) // num:OT_SET 时即变更后的数量
+		if op == OpTypeSet && num == 0 && e.Num == 0 {
+			removed = append(removed, e.Gid)
+			continue
+		}
+		changed = append(changed, e)
 	}
-	return out
+	return changed, removed
 }
+
+// OpTypeSet 是 dataconfig.OpType 的 OT_SET(把数量设成 num);没有「删除」那个 op,见上。
+const OpTypeSet = 2
 
 // ParseFlowReason 取奖励通知(0x0243)的 flow_reason(3)。223 = FLOW_REASON_PET_HOME_LAY,
 // 即「家园宠物下蛋」——从小窝上收下来的蛋走的就是这个理由(见 docs/eggs.md)。
@@ -180,7 +199,7 @@ func ParseCrackEggRsp(body []byte) uint32 {
 	return 0
 }
 
-// parseBagItemEgg 解一件 BagItem:gid(1)/id(2)/update_time(4)/type(14)/egg_data(15)。
+// parseBagItemEgg 解一件 BagItem:gid(1)/id(2)/num(3)/update_time(4)/type(14)/egg_data(15)。
 // 非精灵蛋(无 egg_data)返回 ok=false。
 func parseBagItemEgg(b []byte) (Egg, bool) {
 	var e Egg
@@ -191,6 +210,8 @@ func parseBagItemEgg(b []byte) (Egg, bool) {
 			e.Gid = uint32(v)
 		case num == 2 && typ == protowire.VarintType:
 			e.ItemID = uint32(v)
+		case num == 3 && typ == protowire.VarintType:
+			e.Num = v
 		case num == 4 && typ == protowire.VarintType:
 			e.UpdateTime = int32(v)
 		case num == 15 && typ == protowire.BytesType: // egg_data(PetEggBrief)

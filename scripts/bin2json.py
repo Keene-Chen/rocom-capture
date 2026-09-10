@@ -10,7 +10,12 @@
 - 类型按目录名判定(格式本身无类型标记):路径含 `BinLocalize` → 本地化串表;父目录名
   `BinData` → 定长表(无 data table,CUE4Parse 同样解不出行,产出空 RocoDataRows);
   其余(`BinDataCompressed` 等)→ 压缩表。压缩/定长表的 schema 取同 Bin 根下 `BinConf/<名>.non`,
-  ELocalizedString 用 `BinLocalize/dev_CN/<名>.bytes`(存在则)解引用。
+  ELocalizedString 用 `BinLocalize/dev_CN/<名>.bytes`(存在则)解引用,没有串表就留原始 id。
+- `BinDataCompressed_ROW/` 是**国际服(ROW = Rest Of World)覆盖包**(客户端
+  `DataConfigManagerNew` 按 `RocoEnv.IS_INTERNATIONAL_ROW` 走这一套),与基础表**共用同一份
+  schema**,行也按同样规则解;只是它自带一套 ELocalizedString id 空间、配套串表没随国服包发布
+  (`dev_CN` 是国服基础表的、`zh_Hans` 是国际服基础表的,id 数都对不上),故这些字段留原始 id。
+  个别覆盖文件只有数据段、没有表尾与常量表(残件),解不了,单独计数、不算失败。
 - 输出 `<源>.json`(去掉 .bytes 扩展名)紧邻源文件:压缩/定长表为 `{"RocoDataRows": {...}}`,
   本地化为 `{"LocalizationStrings": {...}}`。
 - 增量:输出比源(.bytes/.non/本地化)都新则跳过;--force 全部重解。并行(CPU 核数)。
@@ -29,6 +34,11 @@ import sys
 
 MAGIC = 0x53DF17BE
 FOOTER_SIZES = {"BinDataCompressed": 68, "BinData": 56, "BinLocalize": 28}
+ROW_SUFFIX = "_ROW"   # BinDataCompressed_ROW:国际服(Rest Of World)覆盖包,见模块头
+
+
+class TruncatedBin(ValueError):
+    """只有数据段、没有表尾的残件(国际服覆盖包里出现过),没法解也不算解析失败。"""
 
 
 # ── 底层读取(FArchive 等价:小端定长)────────────────────────────────
@@ -81,6 +91,12 @@ class RocoBin:
 
         r.seek(r.length - FOOTER_SIZES[bin_type])
         f = self._footer(r, bin_type)
+        # 表尾里的四个 offset 必须落在文件内。越界 = 这尾巴根本不是表尾(文件只有数据段),
+        # 不先拦一道的话后面会拿天文数字去 seek,报出与真因无关的 struct.error。
+        if any(not 0 <= f[k] < r.length for k in
+               ("data_section_offset", "data_table_offset",
+                "constants_table_offset", "constants_section_offset")):
+            raise TruncatedBin("无表尾:文件只有数据段")
 
         if f["data_table_offset"] > 0:
             r.seek(f["data_table_offset"])
@@ -171,7 +187,9 @@ class RocoBin:
         if t == "EStruct": return self._nested(prop["Struct"], loc)
         if t == "ELocalizedString":
             idx = r.i32()
-            return loc.loc_strings.get(idx, "") if loc else ""
+            # 没有配套串表时保留原始 id(而不是给个空串装作没有内容):国际服覆盖包与
+            # 十来张全局配置表都属于这种情况,id 至少还能和别处对上。
+            return loc.loc_strings.get(idx, "") if loc else idx
         raise ValueError(f"未知类型: {t}")
 
     def _struct(self, schema, loc):
@@ -216,25 +234,37 @@ def _is_rocobin(path: str) -> bool:
         return False
 
 
+def _sources(path: str):
+    """→ (schema 路径, 本地化表路径):都在 Bin 根下,按所在目录决定往上走几层、挂不挂串表。
+
+    基础表在 `<Bin根>/BinDataCompressed/`,国际服覆盖包在其下的 `BinDataCompressed_ROW/`,
+    两者共用 `BinConf/<名>.non`。串表路径对覆盖包返回空串(它那套 id 没有配套串表随包发布)。
+    """
+    name = os.path.splitext(os.path.basename(path))[0]
+    parent = os.path.dirname(path)
+    is_row = os.path.basename(parent).endswith(ROW_SUFFIX)
+    bin_root = os.path.dirname(os.path.dirname(parent) if is_row else parent)
+    # 覆盖包自带一套 id 空间,配套串表没随国服包发布(`BinLocalize/` 下 dev_CN 对基础表、
+    # zh_Hans 对国际服的**基础**表,id 数都对不上覆盖包),故不给它挂串表,留原始 id。
+    loc_path = "" if is_row else os.path.join(bin_root, "BinLocalize", "dev_CN", name + ".bytes")
+    return os.path.join(bin_root, "BinConf", name + ".non"), loc_path
+
+
 def _decode(path: str, bin_type: str):
-    """解码单个 .bytes;压缩/定长表按需带 dev_CN 本地化。返回 to_dict 结果。"""
+    """解码单个 .bytes;压缩/定长表按需带本地化串表。返回 to_dict 结果。"""
     with open(path, "rb") as f:
         data = f.read()
     if bin_type == "BinLocalize":
         return {"LocalizationStrings": RocoBin(data, None, bin_type).loc_strings}
 
-    # schema: 同 Bin 根下 BinConf/<名>.non(父目录的父目录 = Bin 根)
-    name = os.path.splitext(os.path.basename(path))[0]
-    bin_root = os.path.dirname(os.path.dirname(path))
-    schema_path = os.path.join(bin_root, "BinConf", name + ".non")
+    schema_path, loc_path = _sources(path)
     if not os.path.exists(schema_path):
         raise FileNotFoundError(f"缺 schema: {schema_path}")
     with open(schema_path, encoding="utf-8") as f:
         schema = json.load(f)
 
     loc = None
-    loc_path = os.path.join(bin_root, "BinLocalize", "dev_CN", name + ".bytes")
-    if os.path.exists(loc_path):
+    if loc_path and os.path.exists(loc_path):
         with open(loc_path, "rb") as f:
             loc = RocoBin(f.read(), None, "BinLocalize")
     return {"RocoDataRows": RocoBin(data, schema, bin_type, loc).rows}
@@ -244,12 +274,7 @@ def _deps(path: str, bin_type: str):
     """输出的依赖文件(用于增量 mtime 比较)。"""
     deps = [path]
     if bin_type != "BinLocalize":
-        name = os.path.splitext(os.path.basename(path))[0]
-        bin_root = os.path.dirname(os.path.dirname(path))
-        for p in (os.path.join(bin_root, "BinConf", name + ".non"),
-                  os.path.join(bin_root, "BinLocalize", "dev_CN", name + ".bytes")):
-            if os.path.exists(p):
-                deps.append(p)
+        deps += [p for p in _sources(path) if p and os.path.exists(p)]
     return deps
 
 
@@ -268,6 +293,8 @@ def _work(args):
             f.write("\n")
         os.replace(tmp, dst)
         return "ok"
+    except TruncatedBin as e:  # 残件:已知形态,单独报以免淹没真失败
+        return f"partial\t{path}\t{e}"
     except Exception as e:  # 个别表结构特殊解不开,不拖累其余
         return f"fail\t{path}\t{type(e).__name__}: {e}"
 
@@ -296,10 +323,16 @@ def main():
     ok = sum(r == "ok" for r in results)
     skip = sum(r == "skip" for r in results)
     fails = [r for r in results if r.startswith("fail")]
+    partials = [r for r in results if r.startswith("partial")]
     for r in fails:
         _, path, err = r.split("\t", 2)
         print(f"  解码失败: {path}: {err}", file=sys.stderr)
-    print(f"-> {root}  解码 {ok},跳过 {skip},失败 {len(fails)}(共 {len(targets)} 个 RocoBinData;--force 全部重解)")
+    for r in partials:
+        _, path, err = r.split("\t", 2)
+        print(f"  残件跳过: {path}: {err}", file=sys.stderr)
+    part_note = f",残件 {len(partials)}" if partials else ""
+    print(f"-> {root}  解码 {ok},跳过 {skip},失败 {len(fails)}{part_note}"
+          f"(共 {len(targets)} 个 RocoBinData;--force 全部重解)")
 
 
 if __name__ == "__main__":

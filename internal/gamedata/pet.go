@@ -11,23 +11,23 @@ type Medal struct {
 	Desc string `json:"desc"`
 }
 
-// imageEntry 是 petbase 形态的图片文件名(头像为数字,全身图去掉 JL_ 前缀)。
+// imageEntry 是 petbase 形态的图片文件名(不带扩展名;头像为数字,全身图为资源名)。
 type imageEntry struct {
 	H   string `json:"h"`   // 小头像文件名
 	B   string `json:"b"`   // 大头像文件名
-	P   string `json:"p"`   // 全身图拼音键(实际文件名为 JL_<p>)
-	PS  string `json:"ps"`  // 全身缩略拼音键
+	P   string `json:"p"`   // 全身图(老宠 JL_<拼音>,新宠 img_<系别>_<名><代>_001_Res)
+	PS  string `json:"ps"`  // 全身缩略
 	SH  string `json:"sh"`  // 异色小头像(形如 3010_1;仅有专属异色图者)
 	SB  string `json:"sb"`  // 异色大头像
-	SPS string `json:"sps"` // 异色全身缩略拼音键(形如 emoding_yise)
+	SPS string `json:"sps"` // 异色全身缩略(形如 JL_emoding_yise / ..._101_Res)
 }
 
 // PetImage 是宠物各尺寸图片的相对路径(相对图片根,空串表示缺图)。
 type PetImage struct {
 	Head          string `json:"head"`          // 小头像 HeadIcon/<n>.webp
 	BigHead       string `json:"bigHead"`       // 大头像 BigHeadIcon256/<n>.webp
-	Portrait      string `json:"portrait"`      // 全身图 Pet1024/JL_<x>.webp
-	PortraitSmall string `json:"portraitSmall"` // 全身缩略 Pet256/JL_<x>.webp
+	Portrait      string `json:"portrait"`      // 全身图 Pet1024/<x>.webp
+	PortraitSmall string `json:"portraitSmall"` // 全身缩略 Pet256/<x>.webp
 }
 
 // PetBaseInfo 是 petbase 形态的元数据(名称/图鉴号/形态名/进化阶段/进化链分组/身高体重范围)。
@@ -87,7 +87,7 @@ func (db *DB) imageOf(petbaseID string, shiny bool) PetImage {
 		if e.SB != "" && db.imgFiles["BigHeadIcon256/"+e.SB+".webp"] {
 			big = e.SB
 		}
-		if e.SPS != "" && db.imgFiles["Pet256/JL_"+e.SPS+".webp"] {
+		if e.SPS != "" && db.imgFiles["Pet256/"+e.SPS+".webp"] {
 			ps = e.SPS
 		}
 	}
@@ -99,10 +99,10 @@ func (db *DB) imageOf(petbaseID string, shiny bool) PetImage {
 		img.BigHead = "BigHeadIcon256/" + big + ".webp"
 	}
 	if e.P != "" {
-		img.Portrait = "Pet1024/JL_" + e.P + ".webp"
+		img.Portrait = "Pet1024/" + e.P + ".webp"
 	}
 	if ps != "" {
-		img.PortraitSmall = "Pet256/JL_" + ps + ".webp"
+		img.PortraitSmall = "Pet256/" + ps + ".webp"
 	}
 	return img
 }

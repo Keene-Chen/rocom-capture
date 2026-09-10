@@ -134,7 +134,7 @@ RandomSeq 57 / Switch 19 / ActorMixer 4),19 个事件各对应 3 个随机变体
 { "3001": { "id": 3001, "name": "MiaoMiao" }, "3004": { "id": 3004, "name": "DiMo" } }
 ```
 
-667 条 / 618 个唯一拼音。621 个 `Pet_Vo_` bnk 中 **582 个能对上**。
+687 条 / 638 个唯一拼音(数字随版本增长;下面几行的 bnk 侧计数取自音频那次导出)。
 
 - 匹配需**大小写不敏感**:表里混有 `Huohua` 与 `HuoHua` 两种写法
 - 39 个 bnk 查无此 id(疑似未上线 / 非图鉴宠),如 `LuoKaDe`、`DuDu`
@@ -146,14 +146,14 @@ RandomSeq 57 / Switch 19 / ActorMixer 4),19 个事件各对应 3 个随机变体
 
 | 字段 | 含义 | 覆盖 |
 | --- | --- | --- |
-| `name` | 中文名 | 1136 条 |
-| `pictorial_book_id` | **图鉴号** | 676 条 |
+| `name` | 中文名 | 1147 条 |
+| `pictorial_book_id` | **图鉴号** | 721 条 |
 
 两点容易踩:
 
 - **`conf_id` ≠ 图鉴号**:conf 3001「喵喵」的图鉴号是 2,conf 3004「迪莫」才是 1。
-- **`PETBASE_CONF.name` 比 `names.json` 的 `species` 全**:后者缺 173 只有叫声宠物的中文名,
-  取中文名应以 `PETBASE_CONF` 为准。
+- **`PETBASE_CONF.name` 比 `names.json` 的 `species` 全**:后者按 conf_id 收录,缺 577 个
+  只在 `PETBASE_CONF` 里的形态(有叫声的宠物有相当一部分在其中),取中文名应以 `PETBASE_CONF` 为准。
 
 一个图鉴号可挂**多个 conf_id 形态变体**,各有独立叫声。例如图鉴 11「鸭吉吉」有 6 个
 (`PangYaJiJi` / `ShouYaJiJi` / `JiJiYa` / `KunYa` / `RanleYa` / `DengYiDengYa`),

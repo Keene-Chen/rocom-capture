@@ -29,15 +29,16 @@ NAMES = "internal/gamedata/data/names.json"
 OUT = "internal/gamedata/data/img"
 QUALITY = 90  # webp 有损质量;UI 图标够用且体积远小于 PNG
 
-# embed 选定的尺寸:索引字段 -> (源/目标子目录, 文件名前缀)。
-# 异色变体 sh/sb/sps 与普通版同目录(文件名形如 3010_1 / JL_emoding_yise),仅有专属异色图的宠物才有。
+# embed 选定的尺寸:索引字段 -> 源/目标子目录。names.json 存的就是完整文件名(不带扩展名),
+# 这里不再补前缀:全身图老宠叫 JL_<拼音>、2026-09 起的新宠叫 img_<系别>_<名><代>_<变体>_Res。
+# 异色变体 sh/sb/sps 与普通版同目录(文件名形如 3010_1 / JL_emoding_yise / ..._101_Res)。
 DIRS = {
-    "h": ("HeadIcon", ""),
-    "b": ("BigHeadIcon256", ""),
-    "ps": ("Pet256", "JL_"),
-    "sh": ("HeadIcon", ""),
-    "sb": ("BigHeadIcon256", ""),
-    "sps": ("Pet256", "JL_"),
+    "h": "HeadIcon",
+    "b": "BigHeadIcon256",
+    "ps": "Pet256",
+    "sh": "HeadIcon",
+    "sb": "BigHeadIcon256",
+    "sps": "Pet256",
 }
 
 
@@ -48,16 +49,16 @@ def main():
     # 索引引用到的唯一文件:{(子目录, 文件名)}
     need = set()
     for e in images.values():
-        for field, (sub, prefix) in DIRS.items():
+        for field, sub in DIRS.items():
             if field in e:
-                need.add((sub, prefix + e[field]))
+                need.add((sub, e[field]))
 
     if not os.path.isdir(SRC):
         sys.exit(f"源目录不存在: {SRC}\n请先跑 scripts/unpack.sh 解包,或传源目录/设 ROCOM_PARSED。")
 
-    done = {sub: 0 for sub, _ in DIRS.values()}   # 本次新转
-    kept = {sub: 0 for sub, _ in DIRS.values()}   # 已存在,跳过(默认;--force 重编)
-    miss = {sub: 0 for sub, _ in DIRS.values()}   # 源缺失(多为未上线)
+    done = {sub: 0 for sub in DIRS.values()}   # 本次新转
+    kept = {sub: 0 for sub in DIRS.values()}   # 已存在,跳过(默认;--force 重编)
+    miss = {sub: 0 for sub in DIRS.values()}   # 源缺失(多为未上线)
     for sub, name in sorted(need):
         dst = os.path.join(OUT, sub, name + ".webp")
         if os.path.exists(dst) and not FORCE:

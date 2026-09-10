@@ -23,8 +23,9 @@
 #
 # AES 主密钥默认用下方 DEFAULT_AES(与 Windows FModel AppSettings.json → AesKeys 同一把,
 # 换密钥的版本传 --aes 覆盖)。
-# 依赖:dotnet SDK 10+(pacman -S dotnet-sdk);CUE4Parse 仓库(默认 ~/Git/gh/CUE4Parse,
-# 环境变量 CUE4PARSE_DIR 覆盖);首次运行会往 ~/.cache/nrc-unpack 下载 oodle/zlib-ng 原生库。
+# 依赖:dotnet SDK 10+(pacman -S dotnet-sdk);CUE4Parse 克隆(默认 ~/Git/gh/CUE4Parse,
+# 环境变量 CUE4PARSE_DIR 覆盖;当前游戏版本的 pak 暂需改版的克隆,见 docs/data.md);
+# 首次运行会往 ~/.cache/nrc-unpack 下载 oodle/zlib-ng 原生库。
 #
 set -euo pipefail
 
@@ -39,21 +40,16 @@ command -v dotnet >/dev/null 2>&1 || {
 CUE4PARSE_DIR="${CUE4PARSE_DIR:-$HOME/Git/gh/CUE4Parse}"
 [[ -f "$CUE4PARSE_DIR/CUE4Parse/CUE4Parse.csproj" ]] || {
     echo "错误: 未找到 CUE4Parse 仓库: $CUE4PARSE_DIR" >&2
-    echo "  git clone https://github.com/FabianFG/CUE4Parse ~/Git/gh/CUE4Parse" >&2
-    echo "  或设置环境变量 CUE4PARSE_DIR 指向已有克隆" >&2
+    echo "  克隆一份,或设环境变量 CUE4PARSE_DIR 指向已有克隆" >&2
+    exit 1
+}
+# 当前游戏版本的 pak 上游还解不开(解不开时只打一行告警就整包跳过,不报错),
+# 故这里认一个改版才有的文件,免得导出「零失败但零内容」。上游支持后可去掉本段。
+[[ -f "$CUE4PARSE_DIR/CUE4Parse/GameTypes/RocoKingdomWorld/Lua/NRCMle.cs" ]] || {
+    echo "错误: $CUE4PARSE_DIR 解不开当前版本的 pak,需要改版的 CUE4Parse 克隆" >&2
     exit 1
 }
 export CUE4PARSE_DIR
-
-# CUE4Parse 的 NRCLua 只解无头 luac,漏了带 {0xFA,0xE5,0xC0}+len 头的那批(约占 9 成,
-# 导致其 AES 对整段解密 padding 失败)。补丁剥掉该头再解密;幂等:已应用(git apply --check
-# 失败)则跳过。补丁随 fresh clone 自动应用,新版本上游修复后 --check 失败自然跳过。
-PATCH="$SCRIPT_DIR/unpack/patches/nrclua-luac-header.patch"
-if [[ -f "$PATCH" ]]; then
-    if git -C "$CUE4PARSE_DIR" apply --check "$PATCH" >/dev/null 2>&1; then
-        git -C "$CUE4PARSE_DIR" apply "$PATCH" && echo "已应用 NRCLua luac 头补丁到 $CUE4PARSE_DIR"
-    fi
-fi
 
 # 解析:剥离本脚本私有的 --no-post(C# 工具不识别);记录 --out、是否 --aes、是否只列不导。
 DEFAULT_AES="0x34254D23E47299B3B7F6C4CFDE9BD0688703446D9D8F37B2EBDDDE5B06ED5ADF"

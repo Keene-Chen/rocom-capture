@@ -40,8 +40,8 @@ type EggType struct {
 	Icon  string `json:"img,omitempty"` // 角标原名,前端拼 egg/<Icon>.webp
 }
 
-// SizeMedal 是按百分位自动授予的奖牌(MEDAL_TASK_CONF 里 get_condition==3 的四枚:
-// 大块头/小不点看体重、婉转声/粗嗓门看嗓音)。蛋的百分位孵化后原样保留,故体重那两枚
+// SizeMedal 是按百分位自动授予的奖牌(MEDAL_TASK_CONF 里那四枚:大块头/小不点看体重、
+// 婉转声/粗嗓门看嗓音)。蛋的百分位孵化后原样保留,故体重那两枚
 // 破壳前就能算出来;嗓音那两枚要等破壳(见 docs/eggs.md)。
 type SizeMedal struct {
 	ID   uint32 `json:"id"`
@@ -51,7 +51,8 @@ type SizeMedal struct {
 	High int32  `json:"hi"`
 }
 
-// 自动奖牌的判定维度(MEDAL_TASK_CONF.condition_data1)。
+// 自动奖牌的判定维度(原 MEDAL_TASK_CONF.condition_data1,该字段已被剥离,
+// 现由 gen_gamedata.py 的 SIZE_MEDAL_DIMS 固定)。
 const (
 	MedalDimWeight = 2
 	MedalDimVoice  = 3

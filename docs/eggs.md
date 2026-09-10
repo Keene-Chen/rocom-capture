@@ -129,7 +129,7 @@ hatched_secs = 250 + 倍率 × (last_hatch_update_sec − start_hatch_time)
 - `height`/`weight` 也就是按那个隐藏物种的蛋区间滚出来的。
 
 于是可以**反推候选物种**:`hatch_data == max_hatched_secs` 且 `height`/`weight` 落在
-该行区间内的所有 `PET_EGG_CONF` 行。917 行的表能收得很窄 —— 实测 14 个随机蛋里最窄的只剩
+该行区间内的所有 `PET_EGG_CONF` 行。1016 行的表能收得很窄 —— 实测 14 个随机蛋里最窄的只剩
 1 个候选(菇菇丁),中位数十来个。候选集假设随机蛋的池子是全表,若实际池子更小
 (商人/活动限定)还能再收窄。
 
@@ -272,8 +272,8 @@ s2c 0x0262 ZoneShopBuyItemRsp{ret_info.goods_change_info.changes[].bag_item.egg_
 | 面向 | 落点 |
 | --- | --- |
 | 品类角标 | `gen_icons.py` 的 egg 组另收 `EGG_TYPE_CONF.small_icon`(图集精灵,8 张:异色/炫彩/珍贵/唯一…) |
-| 蛋图 | `gen_icons.py` 的 **egg 组**:`BAG_ITEM_CONF` 里 `type==8` 的 `icon`(整张贴图)→ `img/egg/<原名>.webp`,293 个唯一图标转出 276(17 个未上线物种的贴图没随包解出,Go 侧回退 `egg_tongyong`) |
-| 索引 | `gen_gamedata.py` 五张表:`egg_conf`(物种蛋区间 + 孵化秒数 + 蛋品类)、`egg_items`(蛋物品 → 显示名/物种/图标/窝上 NPC id/品质/排序号)、`egg_types`(蛋品类 → 名称/排序号/角标)、`size_medals`(按百分位自动授予的四枚奖牌)、`nest_furniture`(小窝家具,按 `interact_type==3` 取,实测仅 1001071) |
+| 蛋图 | `gen_icons.py` 的 **egg 组**:`BAG_ITEM_CONF` 里 `type==8` 的 `icon`(整张贴图)→ `img/egg/<原名>.webp`,326 个唯一图标转出 307(19 个未上线物种的贴图没随包解出,Go 侧回退 `egg_tongyong`) |
+| 索引 | `gen_gamedata.py` 五张表:`egg_conf`(物种蛋区间 + 孵化秒数 + 蛋品类)、`egg_items`(蛋物品 → 显示名/物种/图标/窝上 NPC id/品质/排序号)、`egg_types`(蛋品类 → 名称/排序号/角标)、`size_medals`(按百分位自动授予的四枚奖牌)、`nest_furniture`(小窝家具,按 `interact_type==3` 取,当前两件:精灵小窝 1001071、学院小窝 1001072) |
 | 解析 | `internal/pet/egg.go`(BagItem+PetEggBrief、孵蛋器占用列表、破壳请求/回包、flow_reason)、`internal/scene/home.go`(home_info 的家具与配对、home_pet 实体、蛋 NPC 的 attach_item) |
 | 入库 | `internal/store/egg.go` 的 `eggs` 表 = **背包现状**:蛋一行,`parents` 单列存**收蛋那一刻**的双亲快照(亲本被放生也不受影响);破壳/送人/背包对账不到的直接删行(页面只看背包,不留历史) |
 | 管线 | `internal/pipeline/eggs.go`(背包分页对账 + 收蛋/买蛋入库 + 孵蛋器占用订正 + 认领双亲 + 破壳删行)、`internal/pipeline/home.go`(小窝图层的实时状态与推送) |
@@ -309,7 +309,7 @@ s2c 0x0262 ZoneShopBuyItemRsp{ret_info.goods_change_info.changes[].bag_item.egg_
 - 次序 = 背包原始次序(服务器下发顺序),故 `eggs` 表另存一列 `seq`,由背包全量对账时写入
   (`store.SetEggOrder`),`ListEggs` 按它排;
 - 列表 = 背包里能看见的那些,**在孵的蛋不算**(客户端先 `IsRemoveEggItem` 摘掉再排),
-  故 `handleEggs` 只对非孵化那部分调 `SortEggs`(`can_see` 那道过滤对蛋恒为真,936 件全是 1)。
+  故 `handleEggs` 只对非孵化那部分调 `SortEggs`(`can_see` 那道过滤对蛋恒为真,1051 件全是 1)。
 **在孵的蛋不出现在背包格子里**:客户端 `IsRemoveEggItem` 把孵蛋器里的蛋从背包列表里摘掉,
 本页照此分两栏(左孵蛋器、右背包),因而不需要「背包中/孵化中」这类过滤。
 分栏依据是 `eggs.hatching` 那一列(权威列表订正过它,见 1 的「谁在孵蛋器里」),
@@ -318,9 +318,10 @@ s2c 0x0262 ZoneShopBuyItemRsp{ret_info.goods_change_info.changes[].bag_item.egg_
 
 ### 破壳前就能算出的奖牌
 
-`MEDAL_TASK_CONF` 里 `get_condition==3` 的四枚是按百分位自动授予的:
-`condition_data1` 是维度、`condition_data2` 是百分位窗口 ——
+`MEDAL_TASK_CONF` 里的四枚是按百分位自动授予的:
 大块头 `[98,100]`、小不点 `[0,2]`、婉转声 `[98,100]`、粗嗓门 `[0,2]`。
+(维度与窗口原本取自 `condition_data1`/`condition_data2`,2026-09 大版本这两个字段连同
+`get_condition` 一起被剥离,现由 `gen_gamedata.py` 按 task id 固定维度 + 从 `desc` 文本读窗口。)
 维度虽写作「身高」,**实际判的是体重**:本机 812 只宠物里戴小不点的体重百分位全在 `[0,2]`
 (与窗口严丝合缝)而身高百分位到 5,大块头两者都 ≥98.1 不区分。
 蛋的百分位孵化后原样保留,所以**体重那两枚破壳前就能定**;嗓音那两枚在**家园蛋**上也能定

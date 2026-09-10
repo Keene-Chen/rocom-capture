@@ -42,19 +42,34 @@
 > unluac 反编译回可读源码(绝大多数成功);单文件 `timeout`(默认 60s,`LUAC_TIMEOUT` 覆盖)
 > 兜住 unluac 对个别字节码的死循环,失败/超时打 `.lua.nodecomp` 标记、增量重跑跳过不再白耗;
 > 空模块(源仅注释/空)合法解出空 `.lua`。
-> C# 实现在 `scripts/unpack/`,基于 CUE4Parse 内置的 `GAME_RocoKingdomWorld` 支持(自定义
-> AES 字节置换变体、Bin/luac 专属处理,无需 usmap)。**CUE4Parse 的 NRCLua 只解无头 luac,
-> 漏了带 `{0xFA,0xE5,0xC0}+len` 头的那批(约占 9 成,其 AES 对整段解密 padding 失败),
-> `scripts/unpack/patches/nrclua-luac-header.patch` 剥头修复,由 unpack.sh 幂等应用到克隆**。
-> 依赖 dotnet-sdk 10+ 与 CUE4Parse 克隆
-> (默认 `~/Git/gh/CUE4Parse`,`CUE4PARSE_DIR` 覆盖);首次运行自动下载 oodle/zlib-ng 到
+> C# 实现在 `scripts/unpack/`,基于 CUE4Parse 的 `GAME_RocoKingdomWorld` 支持(自定义
+> AES 字节置换变体、Bin/luac 专属处理,无需 usmap)。当前游戏版本的 pak **要用改版 CUE4Parse
+> 才解得开**(默认克隆位置 `~/Git/gh/CUE4Parse`,`CUE4PARSE_DIR` 覆盖;unpack.sh 会检查,
+> 等上游发布相应支持后换回即可)。
+> 依赖 dotnet-sdk 10+;首次运行自动下载 oodle/zlib-ng 到
 > `~/.cache/nrc-unpack`。AES 主密钥默认值已内置在 `unpack.sh`(`DEFAULT_AES`,换密钥的版本用
 > `--aes <hex>`/`@文件` 覆盖;与 Windows FModel `AppSettings.json → AesKeys` 同一把,该游戏
 > 条目的 UeVersion=68812827 即 `GAME_RocoKingdomWorld`,usmap endpoint 未启用,口径一致)。
 
+> **解包后先核对开头的「挂载 N 个包」是否等于 `ls ~/Downloads/rocom/Paks/*.pak | wc -l`**:
+> 解包器解不开的包只打一行告警就整包跳过,退出码仍是 0、结尾报「共 0 项」,看着像「增量无变化」,
+> 实则新版本一个文件都没导出。
+
 > **2026-07 大版本起,策划专用字段(editor_name、max_num、npc_pendant_id 等)从发布数据剥离**,
 > 解析只可依赖仍随包发布的字段与表:石像奖励行按刷新区域顶点数排除、带星石像按 NPC_PENDANT_CONF
 > 判定(见 [map.md](map.md) 3);星点→区域归属走 CAMP_CONF 管辖区外键链(见 map.md 4)。
+> 剥离逐版本继续,2026-09 大版本这轮三处,症状都是「脚本零报错、某个维度悄悄变空或变错」:
+> ①`CAMP_CONF.manage_area_func` **改名** `area_id`(语义不变,改名比删更阴:`.get(旧名) or 0`
+> 静默取 0,43 个区域的管辖多边形全丢、星点 `zone` 候选全空;已用回放 `star_zone` 复校,
+> `pcap/` 下 8 份各 117 行 0 矛盾);②`MEDAL_TASK_CONF` 只剩 id/desc/count,判定字段
+> `get_condition`/`condition_data1`/`condition_data2` 全没了 → `size_medals` 从 4 枚变 0 枚,
+> 改为按 task id 固定维度 + 从仍发布的 desc 文本读百分位窗口;③`WORLD_MAP_BLOCK_CONF.is_world_map`
+> 从 schema 消失 → `maps[].world` 全 false(底图分辨率与涂地都跟着错),改用客户端自己的判据
+> `BigMapUtils.IsHomeScene`(`301 == scene_cfg`),即 `SCENE_RES_CONF.scene_id != 301` 才是大世界图。
+> **更新后必查**:各生成脚本的 `!!` 告警、`go test ./...`(`world` 那次就是 paint 用例炸出来的)、
+> 拿上一版 `names.json`(`git show HEAD:...`)逐键比条数**并逐值 diff**(只比条数会漏掉布尔翻转)。
+> **字段没了先别急着硬编码**:先在 schema `.non` 的字段列表里找有没有改名的同义字段,
+> 再去反编译的客户端 `.lua` 看它自己怎么判。
 (历史上名称/opcode 曾取自 pak-public-kit、字段号曾取自 world-data;现都被自有提取替代,
 且修正了 pak-public-kit 的 PET_CONF 名整体错位 bug,见第 5 节。)
 
@@ -67,11 +82,22 @@ Bin 目录下:
 | `BinConf/*.non` | 表结构 schema(JSON,字段名/类型/偏移) |
 | `BinDataCompressed/*.bytes` | 表数据(游戏自有压缩二进制) |
 | `BinLocalize/dev_CN/*.bytes` | 本地化字符串(`ELocalizedString` 字段经此解析) |
+| `BinDataCompressed/BinDataCompressed_ROW/*.bytes` | **国际服(ROW = Rest Of World)覆盖包**(2026-09 大版本新增,当前 4 张 ACTIVITY 表),见下 |
 
 `scripts/bin2json.py` 按 CUE4Parse 的 `FRocoBinData` 算法(自行实现,是全仓 `.bytes` 解码的
 唯一实现)把全树 RocoBinData `.bytes` 解为紧邻的 `.json`:压缩/定长表 `{"RocoDataRows":{id:{...}}}`、
 本地化 `{"LocalizationStrings":{...}}`(magic `0x53DF17BE` 识别,非此格式如 BigMap 的 `.bytes` 跳过)。
 `gen_gamedata.py`/`gen_icons.py` 直接读 `BinDataCompressed/<表>.json`,不再自行解 `.bytes`。
+
+> **`BinDataCompressed_ROW/`(国际服覆盖包)**:客户端 `DataConfigManagerNew:InitTableInfo` 按
+> `RocoEnv.IS_INTERNATIONAL_ROW` 决定串表语言(国服固定 `dev_CN`,国际服跟设备语言),这批同名表
+> 就是国际服那套内容。**schema 与基础表共用**(`BinConf/<名>.non`),行也按同样规则解——4 张里
+> 3 张自带完整表尾/数据表/常量表,逐行「解析消耗字节数 == 数据表记的行长」全部自洽;
+> 剩下的 `ACTIVITY_CONF` 只有数据段、没有表尾与常量表(残件),解不了,`bin2json.py` 单独计数
+> 报「残件跳过」、不算失败。**但 ELocalizedString 解不出文本**:每张表的串 id 是各自表内
+> 1..N 的稠密序号,配套串表没随国服包发布(实测该表用到 id 1..291,而 `dev_CN` 是国服基础表的
+> 526 条、`zh_Hans` 是国际服**基础**表的 278 条,都对不上),故这些字段留**原始 id**,
+> 不挂串表硬解——否则会解出「看着像话、其实是另一条」的文本。这几张表下游零引用,只作查数据用。
 opcode/枚举不在 Bin 里,取自 `all.pb`(见第 2、3 节)。unpack.sh 导出后自动解码,也可手动
 `uv run python scripts/bin2json.py` 重跑(增量,秒级);之后直接 grep/jq。
 
@@ -94,15 +120,15 @@ opcode/枚举不在 Bin 里,取自 `all.pb`(见第 2、3 节)。unpack.sh 导出
 - `LAYERED_WORLD_MAP_CONF` + `AREA_FUNC_CONF` — 分层地图(洞穴/地下层)切片图与投影(见 map.md 2)
 - `WORLD_MAP_CONF` + `NPC_REFRESH_CONTENT_CONF` + `AREA_CONF` + `SCENE_OBJECT_CONF`
   — 大地图 POI(炼金釜/魔力之源/…)的图标与坐标(见 map.md 3)。这几张是 Bin 里最大的
-  (AREA_CONF 8.1M、NPC_REFRESH 3.3M),但坐标只能从它们来
-  (`NPC_CONF` 2.4M 现已不被生成脚本读取,留作星星 NPC id/`min_map_disappear` 外键的查证依据)
+  (AREA_CONF 9.1M、NPC_REFRESH 2.3M),但坐标只能从它们来
+  (`NPC_CONF` 2.0M 现已不被生成脚本读取,留作星星 NPC id/`min_map_disappear` 外键的查证依据)
 - `NPC_PENDANT_CONF` — NPC 挂件(带星石像的判据与挂件星 npc,见 map.md 3/4;行 id = 石像刷新行 id
   = pcap 里的 `pendant_cfg_id`)
 - `WORLD_EXPLORING_STATISTIC_CONF` — 探索统计注册表:「眠枭之星」行的 npc 清单即服务器
   explore_infos 计数的那批 npc_id(九个,与 STAR_NPCS/star.go 的 starNpc 同一批);生成脚本
   据此做防锈校验,新版本增删星 npc 会报警(见 map.md 3)
 - `CAMP_CONF` — 营地表(行 id = 营地刷新点 id = explore_infos 的 belong_camp):
-  `manage_area_func` 外键给出区域管辖多边形,是星点→区域归属的权威来源(见 map.md 4)
+  `area_id` 外键给出区域管辖多边形,是星点→区域归属的权威来源(见 map.md 4)
 - opcode/系别/天分/标记的整数枚举取自 `all.pb`(`ZoneSvrCmd`/`SkillDamType` 等)
 
 ## 2. 描述符 → Go(`scripts/gen_proto.py`，数据源:all.pb)
@@ -143,11 +169,11 @@ com_monster/com_pet_skill/com_season/rpc_options/xls_enum/com_pet_team),
 `internal/pb` 只覆盖宠物相关那几个消息(线上解析路径要静态类型),调试新协议时够不着。
 `gen_pbdesc.py` 另出一份**运行时反射用**的生成物 `internal/pbdesc/data/`(已提交,embed):
 
-- `opmsg.json`:opcode → 消息全名(1625 条)。映射表在客户端 `ProtoCMD.lua`
+- `opmsg.json`:opcode → 消息全名(1696 条)。映射表在客户端 `ProtoCMD.lua`
   (`[ProtoCMD.ZoneSvrCmd.X] = ".Next.Y"`),opcode 数值取 all.pb 的 `ZoneSvrCmd`/`ZoneSvrGmCmd`
-  枚举,两边对得上才收(有 20 个消息名 lua 里有、描述符里还没有,跳过)。
-- `proto.desc.gz`:裁剪过的 `FileDescriptorSet`(gzip 178KB)。只留从上述消息**字段可达**的
-  消息与枚举(3085/3816 消息、170/1088 枚举),service/自定义 option 扩展全丢;
+  枚举,两边对得上才收(有 22 个消息名 lua 里有、描述符里还没有,跳过)。
+- `proto.desc.gz`:裁剪过的 `FileDescriptorSet`(gzip 190KB)。只留从上述消息**字段可达**的
+  消息与枚举(3244/4005 消息、189/1128 枚举),service/自定义 option 扩展全丢;
   被引用的嵌套枚举若其外层消息用不上,外层留个空壳撑住命名(否则解析报找不到类型)。
 
 pcapdump 用它 + `dynamicpb` 解出带字段名/枚举名的树(`cmd/pcapdump/typed.go`)。消息在
@@ -181,11 +207,16 @@ PET_CONF，特长直接取 PET_TALENT_CONF，opcode 取自 `all.pb` 的 `ZoneSvr
 ### 宠物图片索引(`images` / `image_base`)
 
 链路:`PetData.conf_id` → `MONSTER_CONF`/`PET_CONF` 行的 **`base_id`** → `PETBASE_CONF.id`(基础形态)
-→ 全身图取 `PETBASE.JL_res`(`Pet1024/Pet256/JL_<拼音>`),头像经 `PETBASE.model_conf` →
+→ 全身图取 `PETBASE.JL_res`(`Pet1024/Pet256/<资源名>`),头像经 `PETBASE.model_conf` →
 `MODEL_CONF.icon`/`big_icon`(`HeadIcon/BigHeadIcon256/<n>`)。**文件名不能用 id 拼**——461 个
-形态的头像文件名不是自身 id(如 3242 用 3012),全身图是拼音代号而非 id,故必须存表。
+形态的头像文件名不是自身 id(如 3242 用 3012),全身图是资源代号而非 id,故必须存表。
 
-`gen_gamedata.py` 输出两张:`images`(petbase_id → `{h,b,p,ps,…}` 文件名,1112 项)与
+> 全身图文件名有**两代命名并存**:老宠是 `JL_<拼音>`(如 `JL_emoding`),2026-09 大版本起的新宠
+> 改成 `img_<系别>_<名><代>_<变体>_Res`(如 `img_Ill_QiuQiu1_001_Res`,`001` 普通 / `101` 异色)。
+> 故 `images` **存原样完整文件名**、Go 侧只拼目录与扩展名;早先为省 3 字节剥掉 `JL_` 前缀再回拼,
+> 新命名对不上会让这批新宠整体丢全身图(详情页空白)。
+
+`gen_gamedata.py` 输出两张:`images`(petbase_id → `{h,b,p,ps,…}` 文件名,1122 项)与
 `image_base`(conf_id → petbase_id,仅 base≠自身者,约 2 万项;base==自身者 Go 侧回退直查)。
 `gamedata.PetImage(confID, shiny)` 据此拼出相对路径(`HeadIcon/3001.webp` 等),挂到 `Pet.Image`,
 前端拼到 `/img/` 下。未上线宠(如占位的圣草帝魔)无美术资源,`PetImage` 返回空,前端给占位图。
@@ -193,13 +224,14 @@ PET_CONF，特长直接取 PET_TALENT_CONF，opcode 取自 `all.pb` 的 `ZoneSvr
 > 缺失才回退 `conf_id`(进化线一阶 base)——否则已进化宠物会显示成基础形态(详见进化形态一节)。
 
 **异色(shiny)变体**:部分宠物有专属异色美术——头像 `MODEL_CONF.shiny_icon`/`big_shiny_icon`
-(形如 `3010_1`)、全身图 `PETBASE.JL_shiny_res`/`JL_small_shiny_res`(形如 `JL_<拼音>_yise`)。
-`images` 仅在与普通版**不同**时额外存 `{sh,sb,sps}`(本版本 220/196/204 项;多数宠异色复用普通图)。
+(形如 `3010_1`)、全身图 `PETBASE.JL_shiny_res`/`JL_small_shiny_res`(形如 `JL_<拼音>_yise`
+或新命名的 `..._101_Res`)。
+`images` 仅在与普通版**不同**时额外存 `{sh,sb,sps}`(本版本 291/261/244 项;多数宠异色复用普通图)。
 `PetImage(confID, true)` 在「索引有该字段**且**对应 webp 确已 embed」时才用异色图,否则回退普通——
 故未导出异色 PNG 时异色宠仍显示普通美术,不会出现空图标。
 
 图片本体(webp)**embed 进二进制**:解包目录里 `Common/Icon` 的 `HeadIcon`/`BigHeadIcon256`/
-`Pet256` 子目录已是 PNG(异色图 `*_1.png`/`JL_*_yise.png` 在同目录),
+`Pet256` 子目录已是 PNG(异色图 `*_1.png`/`JL_*_yise.png`/`*_101_Res.png` 在同目录),
 `uv run python scripts/gen_images.py` 转成 webp 落到 `internal/gamedata/data/img/`
 (`//go:embed all:data/img`),`internal/server` 经 `/img/` 提供。
 35MB 的 `Pet1024` 全身大图暂不 embed(体积考量),需要时把 `Pet1024` 加进 `gen_images.py` 的 `DIRS`。
@@ -222,9 +254,9 @@ PET_CONF，特长直接取 PET_TALENT_CONF，opcode 取自 `all.pb` 的 `ZoneSvr
 | `filter` | `PET_FILTER_CONF.filter_icon` | 系别(属性)18 + 六维 6+6(`AttributeType` 增益类/裸值同图,整数 1-6 即六维编号)+ 搭档标记 10 | 34 |
 | `blood` | `PET_BLOOD_CONF.icon` | 24 条血脉主图标(18 属性系 + 6 特殊;异核/黑魔法共用) | 23 |
 | `static` | 脚本内 `STATIC` 清单 | 人工挑选的杂项(异色/炫彩/污染、伙伴标记外框) | 5 |
-| `worldmap` | 脚本内 `WORLDMAP` 清单 | 人工挑选的大地图 POI(炼金釜/魔力之源/守护地、矿石与植物标记、眠枭庇护所、蓝/黄/紫眠枭之星与精灵果实) | 13 |
-| `medal` | `MEDAL_CONF.icon` | 56 枚奖牌小图(BagItem;部分奖牌共用) | 48 |
-| `glass` | `HIDDEN_GLASS_CONF` / `PARTICLE_RANDOM_CONF` + 脚本内 `GLASS_FRAMES` | 炫彩色卡的两张遮罩、4 种粒子的粒子层、4 款隐藏炫彩的整卡与标记图(含异色版) | 18 |
+| `worldmap` | 脚本内 `WORLDMAP` 清单 | 人工挑选的大地图 POI(炼金釜/魔力之源/守护地、矿石与植物标记、眠枭庇护所、蓝/黄/紫眠枭之星与精灵果实) | 14 |
+| `medal` | `MEDAL_CONF.icon` | 60 枚奖牌小图(BagItem;部分奖牌共用) | 52 |
+| `glass` | `HIDDEN_GLASS_CONF` / `PARTICLE_RANDOM_CONF` + 脚本内 `GLASS_FRAMES` | 炫彩色卡的两张遮罩、4 种粒子的粒子层、5 款隐藏炫彩的整卡与标记图(含异色版) | 21 |
 
 > `filter` 组只收 `filter_icons` 实际输出的三组枚举(`gen_icons.py` 的 `FILTER_ENUMS`,与
 > `gen_gamedata.py` 同一白名单):2026-07 版 `PET_FILTER_CONF` 新增 **PetBloodType**(游戏内
@@ -272,7 +304,7 @@ webp 转码确定性,默认跳过已存在、`--force` 重编。
 (`web/src/components/glass.jsx` + `internal/gamedata/glass.go`),画法照抄客户端
 `UMG_Pet_DazzlingTips_C:ShowNormalGlassInfo` / `ShowHiddenGlassInfo`,**两种炫彩两条路**:
 
-- **隐藏炫彩**(`glass_type=GT_HIDDEN`,赛季款暗夜拾光/狂欢怪谈/铅字幻梦 + 常驻款黑白)——
+- **隐藏炫彩**(`glass_type=GT_HIDDEN`,赛季款暗夜拾光/狂欢怪谈/铅字幻梦/月涌狂想 + 常驻款黑白)——
   `HIDDEN_GLASS_CONF.glass_tips_pic` 就是**整张烤好的卡**(配色已画进图里),原样贴上即可。
   卡旁的文案也来自该表:`type=1` 是常驻款(本地化 `mutation_explain_tips_5` =「常驻隐藏」),
   否则按 `active_season` 套 `mutation_explain_tips_3`(「第N赛季限定」);外观名带富文本色标

@@ -22,7 +22,8 @@
    .lua 等)原样字节。并行、增量,`--filter <前缀>` 选导、`--list` 预览;默认排除三维美术/
    视频/音频等纯客户端运行时资源(`--exclude` 追加、`--no-exclude` 全量,清单见 --help)。C# 实现在
    `scripts/unpack/`,依赖 dotnet-sdk 与 CUE4Parse 克隆(默认 `~/Git/gh/CUE4Parse`,
-   `CUE4PARSE_DIR` 覆盖;内置 `GAME_RocoKingdomWorld` 支持)。
+   `CUE4PARSE_DIR` 覆盖;内置 `GAME_RocoKingdomWorld` 支持,当前游戏版本的 pak 暂需改版的
+   克隆,unpack.sh 会检查)。
    导出后自动跑两个后置步骤(增量,`--no-post` 跳过):全树 RocoBinData `.bytes` → 紧邻 `.json`
    (`scripts/bin2json.py`,需 uv;既供查数据也是 gen_* 输入)、`.luac` → `.lua` 反编译
    (`scripts/decompile_luac.sh`,需 unluac,单文件超时兜住死循环、真失败打 `.lua.nodecomp` 标记免重试)。

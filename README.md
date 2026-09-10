@@ -151,7 +151,8 @@ make clean     # 清理 dist/
 # 1. 从游戏目录原样复制 pak(Windows 客户端 <安装目录>\Win64\NRC\Content\Paks)
 cp -r <游戏Paks目录>/* ~/Downloads/rocom/Paks/
 
-# 2. 解包到 ~/Downloads/rocom/parsed/(增量,产物不比来源 pak 旧才跳过;需 dotnet SDK 与 CUE4Parse 克隆;
+# 2. 解包到 ~/Downloads/rocom/parsed/(增量,产物不比来源 pak 旧才跳过;需 dotnet SDK 与
+#    CUE4Parse 克隆(当前游戏版本暂需改版的,见 docs/data.md);
 #    默认排除三维美术/视频/音频等与数据链无关的大目录,--no-exclude 可真·全量;
 #    导出后自动 .bytes→JSON、luac→lua 反编译(需 unluac,--no-post 跳过))
 ./scripts/unpack.sh

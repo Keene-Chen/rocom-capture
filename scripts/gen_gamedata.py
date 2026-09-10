@@ -126,13 +126,12 @@ species.update({k: v["name"].strip() for k, v in rows("PET_CONF.json").items() i
 _petbase = rows("PETBASE_CONF.json")
 _model = rows("MODEL_CONF.json")
 
-# images: petbase_id -> {h:小头像 b:大头像 p:全身图 ps:全身缩略}(全身图去掉 JL_ 前缀省字节)。
-#   异色变体 sh/sb/sps(头像形如 3010_1,全身图形如 JL_<拼音>_yise)仅在与普通版不同时收录;
-#   多数宠物异色复用普通美术(shiny_icon==icon、无 JL_shiny_res),不会产生 sh/sb/sps。
-def _strip_jl(s):
-    return s[3:] if s and s.startswith("JL_") else s
-
-
+# images: petbase_id -> {h:小头像 b:大头像 p:全身图 ps:全身缩略}(均为不带扩展名的完整文件名)。
+#   全身图文件名有两代命名并存:老宠是 JL_<拼音>,2026-09 起的新宠是 img_<系别>_<名><代>_<变体>_Res。
+#   故这里**存原样**、不做前缀增删,Go/gen_images 只拼目录与扩展名(早先省 3 字节剥 JL_ 前缀,
+#   新命名对不上会整批丢全身图)。
+#   异色变体 sh/sb/sps(头像形如 3010_1,全身图形如 JL_<拼音>_yise / ..._101_Res)仅在与普通版
+#   不同时收录;多数宠物异色复用普通美术(shiny_icon==icon、无 JL_shiny_res),不会产生 sh/sb/sps。
 images = {}
 for pid, p in _petbase.items():
     m = _model.get(str(p.get("model_conf"))) or {}
@@ -140,19 +139,19 @@ for pid, p in _petbase.items():
     head = texkey(m.get("icon") or m.get("small_icon") or m.get("ui_icon"))
     big = texkey(m.get("big_icon"))
     portrait = texkey(p.get("JL_res"))
-    portrait_s = _strip_jl(texkey(p.get("JL_small_res")))
+    portrait_s = texkey(p.get("JL_small_res"))
     if head:
         entry["h"] = head
     if big:
         entry["b"] = big
     if portrait:
-        entry["p"] = _strip_jl(portrait)
+        entry["p"] = portrait
     if portrait_s:
         entry["ps"] = portrait_s
     # 异色变体(仅当与普通版不同):小头像/大头像/全身缩略。
     sh = texkey(m.get("shiny_icon"))
     sb = texkey(m.get("big_shiny_icon"))
-    sps = _strip_jl(texkey(p.get("JL_small_shiny_res")))
+    sps = texkey(p.get("JL_small_shiny_res"))
     if sh and sh != head:
         entry["sh"] = sh
     if sb and sb != big:
@@ -378,6 +377,7 @@ for k, v in rows("SCENE_RES_CONF.json").items():
 # 家园室内(30001)的底图按房屋等级分层(美术资源 Maps/30001/RoomLevel{1..5}),
 # 选层用 ZoneEnterSceneRsp.home_room_level;其余场景一张整图。
 HOME_INDOOR_RES, HOME_ROOM_LEVELS = 30001, 5
+HOME_SCENE_CFG = 301   # 家园(室内 30001 + 种植园 30002 都挂在这个 scene_cfg 下)
 
 maps = {}
 for v in rows("WORLD_MAP_BLOCK_CONF.json").values():
@@ -393,7 +393,10 @@ for v in rows("WORLD_MAP_BLOCK_CONF.json").values():
         "ox": int(cx - side / 2),
         "oy": int(cy - side / 2),
         "side": side,
-        "world": bool(v.get("is_world_map")),  # 大世界(底图出 4096²);家园场景小,出 2048²
+        # 大世界(底图出 4096²、可涂地);家园场景小,出 2048²。原字段 is_world_map 在 2026-09
+        # 大版本被剥离,改用客户端自己的判据 `BigMapUtils.IsHomeScene`(就是 `301 == sceneId`):
+        # 所属 scene_cfg 不是家园(301)的即大世界图——即 10003/10018 两张,与旧 is_world_map 一致。
+        "world": scene_res.get(str(int(res)), {}).get("s") != HOME_SCENE_CFG,
         **({"rooms": HOME_ROOM_LEVELS} if int(res) == HOME_INDOOR_RES else {}),
     }
 
@@ -548,7 +551,7 @@ world_map = {k: w for k, w in world_map.items()
 # WORLD_MAP_CONF 里带 zone_name + camp_refresh_id 的行 = 区域行。
 #
 # 区域的**地理范围**走权威外键链(全部为随包发布的产品字段,43 区含新区全覆盖):
-#   CAMP_CONF(行 id = 营地刷新点 id)→ manage_area_func(营地管辖区)
+#   CAMP_CONF(行 id = 营地刷新点 id)→ area_id(营地管辖区,2026-09 大版本前叫 manage_area_func)
 #     → AREA_FUNC_CONF.area_id → AREA_CONF 多边形(每区恰一个)
 # 相邻管辖区有重叠带,个别星点会同时落入两区且归属无法静态定夺(实测两种决胜规则都会
 # 与服务器分区计数矛盾),故 POI 的 zone 是**候选区域列表**:前端仅当列表非空且全部收满才隐藏
@@ -565,7 +568,7 @@ for k, v in rows("CAMP_CONF.json").items():
     cid = int(k)
     if cid not in zone_name:
         continue  # 非区域营地(副本/家园等)
-    f = area_func.get(str(int(v.get("manage_area_func") or 0)))
+    f = area_func.get(str(int(v.get("area_id") or 0)))
     for aid in (f.get("area_id") or []) if f else []:
         a = area_conf.get(str(int(aid)))
         pts = [p["position_xyz"] for p in (a.get("pos") or []) if p.get("position_xyz")] if a else []
@@ -822,36 +825,53 @@ def _egg_tables():
 
 
 def _size_medals():
-    """按尺寸/嗓音百分位自动授予的奖牌(MEDAL_TASK_CONF 里 get_condition==3 的四条)。
+    """按尺寸/嗓音百分位自动授予的奖牌(MEDAL_TASK_CONF 里那四条)。
 
     -> [{id, n:奖牌名, d:维度(2=体重 3=嗓音), lo, hi}](蛋卡片上是纯文字标签,不取图标)
-    维度取自 condition_data1、百分位窗口取自 condition_data2(如 大块头 = 体重 98~100%)。
     **desc 里写的是「身高」,实际判的是体重**:本机 812 只宠物里戴「小不点」的体重百分位
     全在 [0,2](与配置窗口严丝合缝),而身高百分位到 5;「大块头」两者都 ≥98.1 不区分。
     蛋的百分位孵化后原样保留(见 docs/eggs.md),故体重那两枚破壳前就能算出来;
     嗓音那两枚要等破壳(PetEggBrief 没有 voice 字段)。
+
+    2026-09 大版本把判定字段(get_condition/condition_data1/2)从 MEDAL_TASK_CONF 剥离,
+    只剩 id/desc/count(见 docs/data.md「策划字段剥离」)。故维度按 task id 固定
+    (文本推不出来:desc 说身高、实判体重),百分位窗口仍从 desc 的「前/末/最高/最低 N%」读,
+    窗口若被改动能跟着变;下面的防锈校验兜住该表增删行。
     """
     medals = rows("MEDAL_CONF.json")
     by_task = {}
     for m in medals.values():
         for t in m.get("task_ids") or []:
             by_task[str(t)] = m
+    tasks = rows("MEDAL_TASK_CONF.json")
     out = []
-    for k, v in rows("MEDAL_TASK_CONF.json").items():
-        if v.get("get_condition") != MEDAL_COND_PERCENTILE:
-            continue
-        m = by_task.get(k)
-        win = v.get("condition_data2") or []
-        dim = (v.get("condition_data1") or [0])[0]
-        if not m or len(win) != 2:
+    for k, dim in SIZE_MEDAL_DIMS.items():
+        v, m = tasks.get(str(k)), by_task.get(str(k))
+        win = _percentile_window((v or {}).get("desc", ""))
+        if not v or not m or not win:
+            print(f"!! 百分位奖牌 task {k} 已失效(行在={bool(v)} 奖牌在={bool(m)} "
+                  f"窗口={win});需按 desc 重新核对 SIZE_MEDAL_DIMS", file=sys.stderr)
             continue
         out.append({"id": int(m["id"]), "n": m.get("name", ""),
                     "d": dim, "lo": win[0], "hi": win[1]})
+    extra = [k for k, v in tasks.items()
+             if int(k) not in SIZE_MEDAL_DIMS and _percentile_window(v.get("desc", ""))]
+    if extra:
+        print(f"!! MEDAL_TASK_CONF 新增按百分位授予的奖牌 {extra},需补 SIZE_MEDAL_DIMS", file=sys.stderr)
     return sorted(out, key=lambda x: x["id"])
 
 
-# MEDAL_TASK_CONF.get_condition:3 = 按百分位窗口自动授予(体重/嗓音那四枚)。
-MEDAL_COND_PERCENTILE = 3
+def _percentile_window(desc: str):
+    """「精灵的身高范围在前2%范围内(最高)」-> (98, 100);末/最低 N% -> (0, N)。"""
+    m = re.search(r"范围在(前|末|最高|最低)(\d+)%范围内", desc)
+    if not m:
+        return None
+    n = int(m.group(2))
+    return (100 - n, 100) if m.group(1) in ("前", "最高") else (0, n)
+
+
+# 百分位奖牌的维度:2=体重、3=嗓音(原 condition_data1,已随策划字段剥离)。
+SIZE_MEDAL_DIMS = {1001: 2, 1002: 2, 1025: 3, 1026: 3}
 
 egg_conf, egg_items, egg_types, nest_furniture = _egg_tables()
 size_medals = _size_medals()

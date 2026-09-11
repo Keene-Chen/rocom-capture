@@ -59,10 +59,7 @@
 - **页面五 · 宠物详情**：单只宠物完整信息，可一键保存为图片。
   炫彩宠物在昵称/天分两行右侧多一张**色卡**(复刻游戏内点开炫彩标记弹出的那张)，悬浮看外观名：
   隐藏炫彩给赛季归属与外观名(暗夜拾光/狂欢怪谈/铅字幻梦/黑白)，普通炫彩给粒子与配色；
-  名称行的炫彩标记也换成这一款自己的图标(见 docs/data.md 的炫彩色卡段)。
-  **点色卡**可跳到姊妹项目 [rkpet.whoisnian.com](https://rkpet.whoisnian.com) 看这只这个形态、
-  这套炫彩的 3D 效果(只是个链接,不点不发任何外部请求)。
-- **页面六 · 调试**：实时展示所有游戏应用层消息(opcode)。
+  名称行的炫彩标记也换成这一款自己的图标(素材来源见 rocom-parse docs/data.md 的炫彩色卡段)。
 
 右上角的账号切换**默认不显示昵称与 UID**(只列「账号 1/2/…」，照样能切)：页面常被截图分享，
 账号信息不该顺手带出去。要看是谁，点旁边的 👁 显示，开关记在本地。
@@ -78,55 +75,44 @@
 ## 架构
 
 ```
-afpacket/pcap → TCP 重组 → GCP 分帧 → 0x1002 取密钥 → 0x4013 AES-CBC 解密
+afpacket/pcap → [rocom-parse capture] TCP 重组 → GCP 分帧 → 0x1002 取密钥 → 0x4013 AES-CBC 解密
   → opcode 路由 → PetData(protobuf) 解析 → 名称本地化 → SQLite → REST/SSE → React 前端
 ```
 
 | 目录 | 说明 |
 | --- | --- |
-| `internal/gcp` | GCP 分帧、密钥提取、AES 解密 |
-| `internal/capture` | afpacket 实时抓包 / pcap 离线回放 + TCP 重组 |
-| `internal/pb` | 由游戏描述符 all.pb 生成的宠物消息结构(`scripts/gen_proto.py`) |
-| `internal/pbdesc` | 裁剪版游戏描述符 + opcode→消息名(`scripts/gen_pbdesc.py`)，供 `cmd/pcapdump` 精确解码 |
+| `internal/livecap` | afpacket 实时抓包源,喂给 [rocom-parse](https://github.com/whoisnian/rocom-parse) 的 `capture.Engine`(TCP 重组、GCP 分帧、密钥提取、AES 解密都在那边) |
+| `internal/pb` | 由游戏描述符 all.pb 生成的宠物消息结构(`make gamedata` 生成,不入库) |
 | `internal/wire` | 无 schema 的 protobuf wire 级扫描辅助，供 `pet`/`scene` 共用 |
 | `internal/pet` | PetData 解析与业务模型 |
 | `internal/scene` | 移动/场景/实体消息解析(实时位置、分层、野生宠物、捕捉结果;详见 docs/map.md 1/2/5) |
-| `internal/gamedata` | id→中文名 查找表 + 场景/大地图投影(`scripts/gen_gamedata.py` 生成，embed) |
+| `internal/gamedata` | id→中文名 查找表 + 场景/大地图投影 + 图片(`make gamedata` 从 rocom-parse 生成到 `data/`,embed,不入库) |
 | `internal/store` | SQLite 存储与筛选查询 |
 | `internal/pipeline` | 消费抓包消息流:账号归属、宠物入库/事件、地图与野生宠物、家园与精灵蛋 |
 | `internal/server` | REST API + SSE 推送 + embed 前端 |
 | `web` | React + Vite 前端 |
-| `cmd/pcapdump` | pcap 回放为结构化文本的调试工具(概览/转储/按宠物编号扫描) |
-| `scripts/capture.sh` | tcpdump 全量抓包脚本 |
+
+解包、名称表/图片生成、tcpdump 抓包脚本与 pcap 分析工具(`pcapdump`)都在姊妹仓库
+[rocom-parse](https://github.com/whoisnian/rocom-parse);本仓库不含任何解包数据。
 
 ## 文档
 
-- [协议说明](docs/protocol.md) — tsf4g/GCP 字节布局、分帧、密钥与解密、opcode
-- [数据来源与解析](docs/data.md) — 解包数据源(all.pb + Bin 配置)、proto 与名称表生成、宠物字段映射
+- [协议说明](docs/protocol.md) — 本项目解析的游戏消息(宠物列表、位置与场景);字节层见 rocom-parse
+- [宠物消息解析](docs/parsing.md) — 宠物列表→业务模型、获得/减少事件、盒子与队伍位置、奖牌墙、多账号
 - [大地图与实时地图页](docs/map.md) — 场景与底图投影、分层地图、POI 与眠枭之星、野生宠物、AOI、涂地、稀兽花种
 - [精灵蛋与孵化](docs/eggs.md) — 蛋的协议字段、随机蛋区间、下蛋亲本、品类排序、百分位奖牌
 - [服务架构](docs/architecture.md) — 数据流、模块、HTTP 接口、前端、部署
-- [宠物音频](docs/audio.md) — 叫声 bnk/wem 的解包链路与音调 RTPC(落地站点是 rocom-petvo)
-- [参考资料](docs/reference.md) — 相关工具与开源项目
 
 ## 构建
 
+依赖姊妹仓库 [rocom-parse](https://github.com/whoisnian/rocom-parse)(默认克隆在 `../rocom-parse`,
+`ROCOM_PARSE_DIR` 覆盖)及其依赖(dotnet SDK、CUE4Parse 克隆、uv、protoc);游戏 pak 复制到
+`~/Downloads/rocom/Paks/`。名称表、图片与宠物消息的 Go 结构体不在仓库里,构建前先生成:
+
 ```bash
-# 1. (可选)重新生成 proto / 名称表 / 图片,见「更新游戏数据」与 docs/data.md
-#    生成物(internal/pb、names.json、img webp)已随仓库提交,不更新游戏数据可跳过;
-#    重新生成需先按「更新游戏数据」解包到 ~/Downloads/rocom/parsed;脚本依赖经 uv 管理
-uv sync
-uv run python scripts/gen_proto.py     # all.pb → internal/pb
-uv run python scripts/gen_gamedata.py  # Bin 配置 + all.pb → names.json(含图标索引)
-uv run python scripts/gen_images.py    # 宠物头像/全身图 → img/{HeadIcon,BigHeadIcon256,Pet256} webp
-uv run python scripts/gen_icons.py     # 属性/血脉/奖牌/POI 等 UI 图标 → img/{filter,blood,static,worldmap,medal} webp
-uv run python scripts/gen_bigmap.py    # 大地图/分层切片 → img/bigmap{,/layer} webp(实时地图页)
-
-# 2. 构建前端到 embed 目录
-cd web && npm install && npm run build && cd ..
-
-# 3. 构建单二进制
-go build -o rocom-capture ./cmd/rocom-capture
+make gamedata   # 调 rocom-parse 的 gen.sh:增量解包 → internal/gamedata/data + internal/pb(均 gitignore)
+make build      # → ./rocom-capture(含 gamedata)
+make web        # 改了前端才需要:npm build → internal/server/web(已提交)
 ```
 
 ### 发布构建(amd64 + arm64)
@@ -136,33 +122,15 @@ go build -o rocom-capture ./cmd/rocom-capture
 **只需装 zig,无需 arm64 库/sysroot**:
 
 ```bash
-# 装 zig (以本机 Arch Linux 为例)
-sudo pacman -S zig
-
-make release   # → dist/rocom-capture-linux-amd64、dist/rocom-capture-linux-arm64(均静态、已 strip)
-make clean     # 清理 dist/
+sudo pacman -S zig   # 以本机 Arch Linux 为例
+make release         # → dist/rocom-capture-linux-amd64、dist/rocom-capture-linux-arm64(均静态、已 strip)
+make clean
 ```
 
 ## 更新游戏数据
 
-游戏更新后三步(详见 [docs/data.md](docs/data.md)):
-
-```bash
-# 1. 从游戏目录原样复制 pak(Windows 客户端 <安装目录>\Win64\NRC\Content\Paks)
-cp -r <游戏Paks目录>/* ~/Downloads/rocom/Paks/
-
-# 2. 解包到 ~/Downloads/rocom/parsed/(增量,产物不比来源 pak 旧才跳过;需 dotnet SDK 与
-#    CUE4Parse 克隆(当前游戏版本暂需改版的,见 docs/data.md);
-#    默认排除三维美术/视频/音频等与数据链无关的大目录,--no-exclude 可真·全量;
-#    导出后自动 .bytes→JSON、luac→lua 反编译(需 unluac,--no-post 跳过))
-./scripts/unpack.sh
-
-# 3. 重跑「构建」步骤 1 的生成脚本
-```
-
-解包按虚拟路径镜像导出:`.uasset`/`.umap` → 属性 `.json`(纹理另出 `.png`),其余
-(`.bytes`/`.non`/`.pb`/`.lua` 等)原样字节。生成脚本直接读 `parsed/`(解包根可用环境变量
-`ROCOM_PARSED` 覆盖),仓库只提交精炼后的生成物(`internal/pb`、`names.json`、webp 图片)。
+游戏更新后:重新复制 pak(`rsync -a --delete`,残留的旧补丁包会反压新包)→ `make gamedata`
+(增量解包 + 重新生成)→ `make build`。解包与生成的细节见 rocom-parse 的 docs/data.md。
 
 ## 运行
 

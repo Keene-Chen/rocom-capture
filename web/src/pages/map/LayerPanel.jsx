@@ -5,8 +5,7 @@ import { WILD_LAYERS } from './useWildPets'
 // LayerPanel 图层侧栏:POI 图层开关;可收集图层(眠枭之星/不咕钟零件)行右侧另有收集模式小开关
 // (开 = 隐藏该图层已收集的点,判定来源见 usePois.js)。另有「野生宠物」一组:不是固定点位,
 // 而是附近实时刷出的稀有个体(见 useWildPets.js)。「稀兽花种」并入「地图图标」一组:它同样是
-// 地图图标,只是点位每天/每两周重投、由流量攒出而非后端 POI 清单,行右侧的小开关是检测模式
-// (开 = 隐藏已确认非炫彩的花,见 useFlowers.js)。
+// 地图图标,只是点位每天/每两周重投、由流量攒出而非后端 POI 清单(见 useFlowers.js)。
 // 家园小窝不在此列:那层始终开着,不给开关也不占图例(见 useHomeNests.js)。
 // 复用宠物列表那套 .filters:桌面常驻左列,移动端为侧滑抽屉(collapsed 控制开合)。
 export default function LayerPanel({ pois, wilds, flowers, paint, collapsed, onClose }) {
@@ -40,7 +39,7 @@ export default function LayerPanel({ pois, wilds, flowers, paint, collapsed, onC
             </div>
           ))}
           {/* 稀兽花种同样是地图图标,只是点位不固定(每天/每两周重投),故不走后端的 POI kinds,
-              而由 useFlowers 从流量里攒出来;与可收集图层同构——行右侧小开关是检测模式。
+              而由 useFlowers 从流量里攒出来。
               本场景没有花种时整行不出现,与上面那些「本场景无点位就不给开关」的图层一致。
               图上有炫彩花种时整行高亮:开这层就是为了找它,不该还得自己在几十朵里挨个看。
               参观好友世界时画的是**好友的**花,图层名标出来,免得当成自己的。 */}
@@ -55,10 +54,6 @@ export default function LayerPanel({ pois, wilds, flowers, paint, collapsed, onC
                 <span className="map-layer-name">{flowers.visit ? '稀兽花种(好友)' : '稀兽花种'}</span>
                 <span className="muted">{flowers.num}</span>
               </button>
-              <button className={'map-collect-btn' + (flowers.detect ? ' on' : '')}
-                onClick={flowers.toggleDetect} disabled={!flowers.on}
-                title="检测模式:隐藏已确认不是炫彩的花种(需先开启图层)" aria-label="花种检测模式"
-                aria-pressed={flowers.detect}>✓</button>
             </div>
           )}
         </div>

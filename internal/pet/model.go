@@ -79,8 +79,7 @@ type Pet struct {
 	CatchTime int64 `json:"catchTime"` // 捕捉时间(unix 秒)
 	Shiny     bool  `json:"shiny"`     // 异色(mutation_type bit0)
 	Colorful  bool  `json:"colorful"`  // 炫彩(mutation_type bit3)
-	// 是哪一种炫彩:PetData.glass_info 原样入库。前端拿它 + base_conf_id 换姊妹项目 rkpet
-	// 的 3D 展示链接(见 docs/reference.md);非炫彩为 0。
+	// 是哪一种炫彩:PetData.glass_info 原样入库,色卡由它在读取时现算;非炫彩为 0。
 	GlassType  int32 `json:"glassType,omitempty"`  // glass_type:1 普通 / 2 隐藏
 	GlassValue int32 `json:"glassValue,omitempty"` // glass_value:隐藏款 id / 打包色号
 	// 色卡(外观名与绘制素材,见 gamedata.GlassCard):由上面两个编号在**读取时**现算
@@ -243,8 +242,7 @@ func ToPet(p *pb.PetData, db *gamedata.DB) *Pet {
 // PetData.height/weight 同单位(÷100 米、÷1000 千克),百分位 = (当前值-下限)/(上限-下限),
 // 裁剪到 0-100。
 //
-// 色卡只在**查得出**时覆盖:老库里存着旧版本序列化的 Glass 而 glass_info 编号还没入库
-// (GlassType 为 0),那就留着它那份 —— 卡还画得出来,只是点不出 rkpet 链接,
+// 色卡只在**查得出**时覆盖:行里 glass_info 编号缺失(GlassType 为 0)时留着 data 里那份,
 // 等下次登录全量快照重写这一行就补齐了。
 func FillDerived(db *gamedata.DB, pets ...*Pet) {
 	for _, p := range pets {

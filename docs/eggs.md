@@ -2,8 +2,8 @@
 
 精灵蛋页(`web/src/pages/eggs/`)与家园小窝图层背后的数据:蛋的协议字段、随机蛋区间、
 下蛋亲本、孵蛋器与破壳、品类与排序、破壳前能算出的奖牌。名称/图标索引由
-`scripts/gen_gamedata.py` 与 `scripts/gen_icons.py` 产出,生成管线见
-[数据来源与解析](data.md);解析与入库在 `internal/pet/egg.go`、`internal/store/egg.go`。
+rocom-parse 的 `gen_gamedata.py` 与 `gen_icons.py` 产出(`make gamedata`),生成管线见其 docs/data.md;
+解析与入库在 `internal/pet/egg.go`、`internal/store/egg.go`。
 
 ## 1. 协议与字段(`0x0312` + `PET_EGG_CONF`)
 
@@ -17,7 +17,7 @@
 | --- | --- | --- |
 | 唯一 id | `bag_item.gid` | 是**背包物品**的 gid,`egg_gid` 指的就是它;孵出的宠物是另一个 gid(`ZoneCrackEggRsp.hatched_pet_gid`,`0x030c`),两者只有破壳那一刻的响应能对上 |
 | 获得时间 | `bag_item.update_time` | 蛋进包/最后变更的 unix 秒;`egg_data.start_hatch_time` 是放进孵蛋器的时刻 |
-| 种类 | `egg_data.conf_id` | → 孵出的宠物名(2026-08 起 `PET_EGG_CONF.name` 已不发布,改由 `pet_id` 重建,见下);`0` 表示随机蛋,另看 `random_egg_conf` |
+| 种类 | `egg_data.conf_id` | → 孵出的宠物名(`PET_EGG_CONF.name` 不发布,由 `pet_id` 重建,见下);`0` 表示随机蛋,另看 `random_egg_conf` |
 | 身高/体重 | `egg_data.height`/100 米、`weight`/1000 千克 | **下蛋时就定死**,区间取 `PET_EGG_CONF.height_low/high`、`weight_low/high`(蛋自己的区间,与 `PETBASE_CONF` 里成体的区间不是一套数);**百分位孵化后原样保留**,见下 |
 | 孵化进度 | `hatched_secs` / 上限 | 上限:`conf_id==0` 用 `egg_data.max_hatched_secs`,否则查 `PET_EGG_CONF.hatch_data`(两者实测一致)。百分比 = `floor(secs/上限*100)`,与客户端 `UMG_PetHatchingItem_C:OnUpdateHatchSecs` 同口径 |
 | 来源 | `egg_data.src`(`EggAcquireWayType`) | `EAWT_HOME=6` 牧场、`EAWT_BLESSING=5` 好友赐福、`EAWT_NONE=0` 其他(如商人处买的随机蛋) |
@@ -25,7 +25,7 @@
 
 **没有的东西**:`PetEggBrief` 里**没有声音(voice)字段**,也没有性格/个体值 ——
 `PET_EGG_CONF.voice_percent` 恒为 `[0,100]`(全范围),嗓音只能等破壳
-(2026-08 小版本起该字段连同 `name`/`form`/`pet_bond_name` 一并不再发布,见下)。
+(该字段连同 `name`/`form`/`pet_bond_name` 都不发布,见下)。
 `mutation_type`(异色)/`glass_info`(炫彩)/`talent_rank`(天分)/`is_precious` 协议上有位置,
 但实测 39 个蛋全为空,大概率也是破壳才填。**父母本信息全程没有**:蛋从牧场产出走的是
 背包增量(`GoodsChange`),没有独立的「下蛋」opcode,双亲不随蛋下发。
@@ -100,11 +100,10 @@ hatched_secs = 250 + 倍率 × (last_hatch_update_sec − start_hatch_time)
 是模板 `"{0}的蛋"`,`{0}` 填**种类名**;随机蛋(`conf_id=0`)没得填,直接用物品 `name`
 (如 `310049` = 神奇的蛋)。
 
-### 物种名怎么来(2026-08 小版本改)
+### 物种名怎么来
 
-`PET_EGG_CONF` 这版把 `name`/`form`/`voice_percent`/`pet_bond_name` 四个字段从发布数据里
-**删掉了**(schema `.non` 里都没有了,延续 2026-07 起剥离策划专用字段的做法),`egg_conf.n`
-只能用仍发布的字段重建:`pet_id` → `MONSTER_CONF`/`PET_CONF` 的种类名,再按
+`PET_EGG_CONF` 的 `name`/`form`/`voice_percent`/`pet_bond_name` 四个字段是策划专用、不随包发布
+(schema `.non` 里没有),`egg_conf.n` 只能用仍发布的字段重建:`pet_id` → `MONSTER_CONF`/`PET_CONF` 的种类名,再按
 `PET_INFO_CONF[pet_info_id].blood_id` 补血脉后缀(取 `PET_BLOOD_CONF.name` 全名,
 如「迪莫（光系血脉）」;`blood_id==1` 普通系人人都有,不加)。
 
@@ -361,8 +360,8 @@ gid 单独返回,交给 `pipeline.removeEggs` 当场删行。三个条件一起�
 
 `MEDAL_TASK_CONF` 里的四枚是按百分位自动授予的:
 大块头 `[98,100]`、小不点 `[0,2]`、婉转声 `[98,100]`、粗嗓门 `[0,2]`。
-(维度与窗口原本取自 `condition_data1`/`condition_data2`,2026-09 大版本这两个字段连同
-`get_condition` 一起被剥离,现由 `gen_gamedata.py` 按 task id 固定维度 + 从 `desc` 文本读窗口。)
+(`MEDAL_TASK_CONF` 只发布 id/desc/count,判定字段 `get_condition`/`condition_data1`/`condition_data2`
+不随包,故 `gen_gamedata.py` 按 task id 固定维度 + 从 `desc` 文本读窗口。)
 维度虽写作「身高」,**实际判的是体重**:本机 812 只宠物里戴小不点的体重百分位全在 `[0,2]`
 (与窗口严丝合缝)而身高百分位到 5,大块头两者都 ≥98.1 不区分。
 蛋的百分位孵化后原样保留,所以**体重那两枚破壳前就能定**;嗓音那两枚在**家园蛋**上也能定

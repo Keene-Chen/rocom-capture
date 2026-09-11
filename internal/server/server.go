@@ -5,7 +5,6 @@ package server
 import (
 	"embed"
 	"encoding/json"
-	"fmt"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -20,14 +19,13 @@ var webFS embed.FS
 
 // Server 聚合存储、广播中心与路由。
 type Server struct {
-	store       *store.Store
-	hub         *Hub
-	mux         *http.ServeMux
-	db          *gamedata.DB
-	opcodeNames map[uint16]string
-	medals      []gamedata.MedalEntry
-	medalIDs    map[string][]uint32 // 奖牌名 -> id 列表(同名多枚时全含),用于把筛选名解析为 id
-	icons       iconMeta
+	store    *store.Store
+	hub      *Hub
+	mux      *http.ServeMux
+	db       *gamedata.DB
+	medals   []gamedata.MedalEntry
+	medalIDs map[string][]uint32 // 奖牌名 -> id 列表(同名多枚时全含),用于把筛选名解析为 id
+	icons    iconMeta
 
 	posMu    sync.Mutex                // 保护 lastPos / lastWild / lastHome / visitFlowers
 	lastPos  map[string]map[string]any // 账号 -> 最近一次位置(实时地图页加载时即时回显,不必等下一次移动)
@@ -54,7 +52,7 @@ type iconMeta struct {
 
 // New 创建 HTTP 服务。
 func New(st *store.Store, hub *Hub, db *gamedata.DB) *Server {
-	s := &Server{store: st, hub: hub, mux: http.NewServeMux(), db: db, opcodeNames: db.OpcodeNames(), medals: db.AllMedals()}
+	s := &Server{store: st, hub: hub, mux: http.NewServeMux(), db: db, medals: db.AllMedals()}
 	s.lastPos = map[string]map[string]any{}
 	s.lastWild = map[string]any{}
 	s.lastHome = map[string]any{}
@@ -86,14 +84,6 @@ func New(st *store.Store, hub *Hub, db *gamedata.DB) *Server {
 
 // Hub 返回广播中心。
 func (s *Server) Hub() *Hub { return s.hub }
-
-// OpcodeName 返回 opcode 的可读名称。
-func (s *Server) OpcodeName(op uint16) string {
-	if n, ok := s.opcodeNames[op]; ok {
-		return n
-	}
-	return fmt.Sprintf("UNKNOWN_0x%04X", op)
-}
 
 // Handler 返回 http.Handler。
 func (s *Server) Handler() http.Handler { return s.mux }

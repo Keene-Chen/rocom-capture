@@ -6,8 +6,8 @@
 ## 1. 数据流
 
 ```
-                         ┌─────────────── capture.Engine ───────────────┐
- 网卡(afpacket)/pcap ──→ │ 读包 → TCP重组 → GCP分帧 → 取密钥 → AES解密     │
+                         ┌──── rocom-parse capture.Engine ──────────────┐
+ 网卡(livecap)/pcap ──→  │ 读包 → TCP重组 → GCP分帧 → 取密钥 → AES解密     │
                          │        → opcode 路由                          │
                          └───────────────────┬──────────────────────────┘
                                              │ chan Message{dir,opcode,appBody}
@@ -18,7 +18,6 @@
                               │       → pet.ToPet(+gamedata)   │
                               │       → store.For(acc).UpsertPet│
                               │       → 新增且实时 → 事件       │
-                              │ 任意消息 → debug 广播           │
                               └───────┬───────────────┬────────┘
                                       ▼               ▼
                                  store(SQLite)      hub(SSE 广播)
@@ -33,41 +32,28 @@
 
 | 包 | 职责 |
 | --- | --- |
-| `gcp` | GCP 分帧(`Deframe`)、密钥提取(`ExtractKey`)、AES 解密(`DecryptData`)、明文自检(`ValidPlain`)、opcode 提取 |
-| `capture` | 数据源(`afpacket` 实时 / `pcapgo` 离线)+ `reassembly` TCP 重组 + 会话密钥管理(可选 `KeyStore` 持久化，见 §3)，输出 `Message` |
-| `pb` | 游戏描述符 all.pb 生成的宠物消息结构(生成物) |
-| `pbdesc` | embed 的裁剪版描述符集 + opcode→消息名(生成物),供 `cmd/pcapdump` 反射式精确解码 |
+| `livecap` | afpacket 实时抓包源(cgo),喂给 rocom-parse 的 `capture.Engine`(TCP 重组 + GCP 分帧/解密 + 会话密钥管理,`KeyStore` 由 `store` 实现,见 §3);离线回放直接用 Engine |
+| `pb` | 游戏描述符 all.pb 生成的宠物消息结构(`make gamedata` 生成,不入库) |
 | `wire` | 无 schema 的 protobuf wire 级扫描辅助(`ScanFields`/`SubMsg`/`Walk` 等),供 `pet`/`scene` 共用 |
 | `pet` | `ParsePetListRsp` 解析宠物列表；`ToPet` 转中文化业务模型；`ParseLoginAccount` 取登录 user_id/昵称 |
 | `scene` | 场景移动/切换/区域/星星实体消息解析(实时地图页) |
-| `gamedata` | embed 的 id→中文名 查找库 |
+| `gamedata` | embed 的 id→中文名 查找库与图片(`make gamedata` 从 rocom-parse 生成 `data/`,不入库) |
 | `store` | SQLite 持久化,按 `account` 分区(宠物/盒队/奖牌/事件/**精灵蛋** + `accounts` 表)与多维筛选查询;`For(account)` 返回绑定账号的 `*Scoped` 视图;另存 `sessions` 表(连接会话密钥+账号归属,供重启续解,见 §3) |
-| `pipeline` | 消费 `capture` 输出的消息流:账号归属、宠物入库/事件、实时地图与星星/野生宠物状态、家园小窝图层与精灵蛋入库(原 main 的 consume 循环;按 pets/position/stars/wildpets/home/eggs 分文件) |
+| `pipeline` | 消费 `capture.Engine` 输出的消息流:账号归属、宠物入库/事件、实时地图与星星/野生宠物状态、家园小窝图层与精灵蛋入库(原 main 的 consume 循环;按 pets/position/stars/wildpets/home/eggs 分文件) |
 | `server` | REST API、SSE 广播(`Hub`)、embed 前端静态资源;另持有**涂地覆盖位图**(`paint.go`:管线记、HTTP 读同一份内存,攒批落盘,见 docs/map.md 7) |
 
 `cmd/rocom-capture/main.go` 组装上述模块并启动抓包与 HTTP。
 
 ## 3. 抓包与重组要点
 
-- **方向判定**：`reassembly` 每个 TCP 连接只创建一个 `Stream`，双向数据经同一
-  `ReassembledSG`，用 `sg.Info()` 的方向 + 触发包端口映射为 c2s/s2c。
-- **flush 用抓包时钟(实时中段接入必需)**：`reassembly` 在中段接入(未见 SYN)时会把起始
-  数据当作"等待更早分段"缓冲,须 flush 才下推。`process()` 每 `flushEvery` 包调一次
-  `FlushWithOptions{T: lastTS-flushLag, TC: lastTS-closeIdle}`,阈值取**最新包时间戳**
-  `lastTS` 而非墙钟——实时流里墙钟-2min 永远追不上活跃连接的数据时间,起始 backlog 会一直
-  卡住直到 EOF 的 `FlushAll`(而 `Ctrl-C` 会跳过它),表现为"重启后能恢复密钥却收不到任何
-  消息"。`T` 促使跨间隙滞留数据近实时下推,`TC` 只关闭真正空闲的连接、不误关活跃连接。
-- **会话密钥共享**：c2s/s2c 两个半连接归一化为同一 `session`，ACK(下行)提取的密钥
-  供同会话的 DATA 解密。
-- **会话密钥持久化(重启续解)**：密钥仅在连接建立时的 `0x1002 ACK` 明文下发一次;抓包
-  服务若在密钥协商之后才启动/重启,拿不到密钥则整条连接的 DATA 全被当无密钥丢弃。
-  为此 `Engine.Keys`(可选 `KeyStore`,由 `store` 实现)把 `connID→密钥` 落库:连接首次
-  出现时预热密钥、收到 ACK 时落盘;`pipeline` 同步持久化 `connID→account` 归属并在启动时
-  预热。因 AES-CBC 每个 DATA 包自带 IV(或固定零 IV)、解密无跨包状态,只要密钥在手,重启后
-  从流中段接上的 DATA 即可独立解密并归属。**防误用**:四元组被新连接复用时可能套到陈旧
-  缓存密钥,故解密后用 `gcp.ValidPlain` 校验 s2c 明文固定标记 `0x55aa`,不符即丢弃(新连接
-  的 ACK 会重下发正确密钥覆盖);缓存另设 `store.SessionTTL`(24h)兜底过期。
-- **实时 vs 离线**：二者共用 `process()`；`afpacket` 无需 libpcap(纯 AF_PACKET)。
+TCP 重组、flush 时钟、会话密钥共享等在 rocom-parse 的 `capture` 包(见其 docs/protocol.md 5)。本项目这边:
+
+- **会话密钥持久化(重启续解)**:密钥仅在连接建立时的 `0x1002 ACK` 明文下发一次;抓包服务若在密钥
+  协商之后才启动/重启,拿不到密钥则整条连接的 DATA 全被丢弃。为此 `store` 实现 `capture.KeyStore`
+  把 `connID→密钥` 落库(`sessions` 表):连接首次出现时预热、收到 ACK 时落盘;`pipeline` 同步持久化
+  `connID→account` 归属并在启动时预热。缓存密钥另设 `store.SessionTTL`(24h)兜底过期。
+- **实时源**:`livecap.Run` 用 afpacket(cgo)读网卡,并把网卡自身 IP 登记进忽略集(单臂 NAT 去重);
+  `-ignore-ip` 可再加。离线回放 `Engine.RunOfflineFiles` 把轮转出来的多份 pcap 当一条流。
 
 ## 4. 事件判定
 
@@ -92,8 +78,8 @@
   (`events` 保留自增主键 + `account` 列);`accounts` 表存 `user_id→昵称`。
   `store.Store.For(account)` 返回绑定该账号的 `*Scoped` 视图,所有按账号读写只经它、SQL 一律带
   `account=?`——漏传即编译错误。复合主键使同一 `gid` 可在不同账号并存,互不覆盖。
-- **实时/接口**:SSE 每条广播带 `account` 字段(调试消息为空);前端各页按当前账号过滤
-  (调试页不过滤,并显示来源账号)。REST 用 `?account=` 选账号(缺省回退最近活跃)。
+- **实时/接口**:SSE 每条广播带 `account` 字段(全局消息为空);前端各页按当前账号过滤。
+  REST 用 `?account=` 选账号(缺省回退最近活跃)。
 - **归属持久化**:`connID→account` 映射随 `sessions` 表落库(见 §3),抓包服务重启后预热恢复,
   配合缓存的会话密钥即可对仍存活的连接续解并正确归属,无需再等下次登录。
 - **已知限制**:首次仍必须抓到某连接的 `LOGIN_RSP` 才能建立归属(从未见过登录、且无缓存的
@@ -125,7 +111,7 @@
 | `GET /api/icons` | 全局固定图标(六维属性小图 + 异色/炫彩/污染标记图),静态数据,前端一次性缓存 |
 | `GET /api/name-options` | 全量特长名(gamedata 全表,不按账号),供事件页高亮规则点选 |
 | `GET /api/evolution` | 某 petbase(`?base=`)所属进化链(按阶段升序),静态数据,供详情页 |
-| `GET /api/stream` | SSE，实时推送 `{type: pet\|event\|debug\|position\|stars\|starzones\|wildpets\|paint\|home\|eggs, account, data}` |
+| `GET /api/stream` | SSE，实时推送 `{type: pet\|event\|position\|stars\|starzones\|wildpets\|paint\|home\|eggs, account, data}` |
 | `GET /img/` | embed 的图片资源(宠物头像/全身图/UI 图标/大地图瓦片) |
 | `GET /*` | 前端 SPA(未匹配路径回退 index.html) |
 
@@ -152,11 +138,11 @@
 
 ## 7. 前端(`web/`，React + Vite)
 
-- 路由(HashRouter)：`/pets` 列表、`/pets/:gid` 详情、`/events` 捕获事件、`/map` 实时地图、`/debug` 调试。
+- 路由(HashRouter)：`/pets` 列表、`/pets/:gid` 详情、`/events` 捕获事件、`/map` 实时地图、`/eggs` 精灵蛋。
 - **账号切换**:顶栏下拉(`/api/accounts` 填充),`AccountContext` 下发当前账号;切换时经
   `<main key={account}>` 轻量重挂各页(不整页 reload),`api.js` 各请求自动带 `?account=`,
-  各页对 SSE 按 `msg.account` 过滤(调试页不过滤)。
-- 实时：`EventSource('/api/stream')` 订阅，列表防抖刷新、事件流追加、调试流追加、地图位置(`position`)更新。
+  各页对 SSE 按 `msg.account` 过滤。
+- 实时：`EventSource('/api/stream')` 订阅，列表防抖刷新、事件流追加、地图位置(`position`)更新。
   **全站共用一条连接**(`api.js` 的 `subscribe` 内部复用,按 `msg.type` 分发给各订阅者):
   地图页一页就有位置/POI/野生宠/小窝/涂地五处要实时数据,各开一条会顶满浏览器
   「同域 6 条 HTTP/1.1 连接」的上限,底图 webp 与后续 API 全排不上队(实测地图一片空白)。

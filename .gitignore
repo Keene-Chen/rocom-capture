@@ -1,5 +1,10 @@
-# Python (scripts venv)
-/.venv/
+# 游戏数据生成物(make gamedata 从 rocom-parse 生成,见 Makefile)
+/internal/gamedata/data/
+/internal/pb/
+
+# 本机联调 rocom-parse 用的 workspace(go work init . ../rocom-parse)
+/go.work
+/go.work.sum
 
 # 抓包产物
 /pcap/
@@ -31,10 +36,4 @@ rocom-key.pem
 .idea/
 .vscode/
 
-# Python
-__pycache__/
 mdldbg
-
-# C# 解包工具(scripts/unpack)构建产物
-/scripts/unpack/bin/
-/scripts/unpack/obj/

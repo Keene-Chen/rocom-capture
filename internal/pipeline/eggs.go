@@ -3,10 +3,10 @@ package pipeline
 import (
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
-	"github.com/whoisnian/rocom-capture/internal/gcp"
 	"github.com/whoisnian/rocom-capture/internal/pet"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
+	"github.com/whoisnian/rocom-parse/gcp"
 )
 
 // ---- 精灵蛋(见 docs/eggs.md)----

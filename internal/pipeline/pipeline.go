@@ -4,20 +4,19 @@
 package pipeline
 
 import (
-	"fmt"
 	"log"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
-	"github.com/whoisnian/rocom-capture/internal/gcp"
 	"github.com/whoisnian/rocom-capture/internal/pb"
 	"github.com/whoisnian/rocom-capture/internal/pet"
 	"github.com/whoisnian/rocom-capture/internal/scene"
 	"github.com/whoisnian/rocom-capture/internal/server"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
+	"github.com/whoisnian/rocom-parse/gcp"
 )
 
 // grace 是「初始快照」的判定余量(秒):add_time 早于服务启动前 grace 的宠物视为存量仓库,
@@ -143,16 +142,6 @@ func (p *Pipeline) handle(m capture.Message) {
 		p.registerLogin(m)
 	}
 	acc := p.connAccount[m.Session]
-
-	// debug 页面:广播所有应用层消息,按来源账号归属(登录前无法归属的连接消息 acc="" 作全局)。
-	// 订阅端据此只推当前账号的调试流;账号也放进 data 供页面列展示。
-	p.srv.Hub().Broadcast("debug", acc, map[string]any{
-		"time":    m.Time.Unix(),
-		"dir":     m.Direction.String(),
-		"opcode":  fmt.Sprintf("0x%04x", m.Opcode),
-		"name":    p.srv.OpcodeName(m.Opcode),
-		"account": acc,
-	})
 	if acc == "" {
 		return // 尚未见到该连接的登录(无法归属 user_id),丢弃
 	}

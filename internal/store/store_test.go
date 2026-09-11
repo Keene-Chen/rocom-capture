@@ -265,7 +265,7 @@ func TestBoxTeamSwapClearsStaleSide(t *testing.T) {
 	st := newTestStore(t)
 	sc := st.For(testAcc)
 
-	team := mkPet(st.gd, 12, 2000672, 3006)   // 迪莫:初始在大世界队伍
+	team := mkPet(st.gd, 12, 2000672, 3006)    // 迪莫:初始在大世界队伍
 	boxed := mkPet(st.gd, 6476, 2000672, 3006) // 岚鸟:初始在宠物盒
 	for _, p := range []*pet.Pet{team, boxed} {
 		if _, err := sc.UpsertPet(p); err != nil {

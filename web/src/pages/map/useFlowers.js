@@ -12,7 +12,6 @@ import { getFlowers, subscribe } from '../../api'
 // **三态,不是两态**:花种列表里没有炫彩,炫彩只在玩家点开某朵花时服务器才单独下发。
 // 被动抓包不能代替客户端去问,所以没点过的花永远是「未检测」——绝不能显示成「普通」。
 const LS_KEY = 'map.flowerLayer'     // 图层开关(默认关)
-const LS_DETECT = 'map.flowerDetect' // 检测模式开关(默认关)
 const load = (key) => { try { return localStorage.getItem(key) === '1' } catch { return false } }
 const save = (key, v) => { try { localStorage.setItem(key, v ? '1' : '0') } catch { /* 隐私模式等 */ } }
 
@@ -38,7 +37,6 @@ export function useFlowers(account, res) {
   const [flowers, setFlowers] = useState([])
   const [visit, setVisit] = useState(false) // 当前这套花是不是好友世界的
   const [on, setOn] = useState(() => load(LS_KEY))
-  const [detect, setDetect] = useState(() => load(LS_DETECT))
 
   useEffect(() => {
     let alive = true
@@ -60,14 +58,11 @@ export function useFlowers(account, res) {
   }), [account])
 
   const toggle = () => setOn((v) => { save(LS_KEY, !v); return !v })
-  const toggleDetect = () => setDetect((v) => { save(LS_DETECT, !v); return !v })
 
   // 花种只在有底图的大世界场景刷,进副本/家园时本层自然为空。
   const here = flowers.filter((f) => f.res === res)
-  // 检测模式:只隐藏**已确认不是炫彩**的那些,未检测的照常显示(方向永远安全,
-  // 与眠枭之星收集模式同一原则:宁可多显示,不能藏掉可能是炫彩的)。
-  const marks = on ? here.filter((f) => !detect || f.st !== FL_PLAIN) : []
+  const marks = on ? here : []
   const glassy = here.filter((f) => f.st === FL_GLASSY).length
 
-  return { marks, num: here.length, glassy, visit, on, toggle, detect, toggleDetect }
+  return { marks, num: here.length, glassy, visit, on, toggle }
 }

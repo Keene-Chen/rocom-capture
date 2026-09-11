@@ -4,10 +4,10 @@ import (
 	"log"
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
-	"github.com/whoisnian/rocom-capture/internal/gcp"
 	"github.com/whoisnian/rocom-capture/internal/pet"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
+	"github.com/whoisnian/rocom-parse/gcp"
 )
 
 // petSweep 累积一轮分页宠物列表全量下发。客户端登录/打开仓库时会连续请求 page 1..TotalPage,

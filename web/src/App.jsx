@@ -11,7 +11,6 @@ const NAV = [
   { to: '/events', label: '捕获事件', icon: '🔔' },
   { to: '/eggs', label: '精灵蛋', icon: '🥚' },
   { to: '/map', label: '实时地图', icon: '🗺️' },
-  { to: '/debug', label: '调试', icon: '🐞' },
 ]
 
 // uidOf 从账号键 "UID:<user_id>" 取出 user_id(用于展示 nickname(user_id))。

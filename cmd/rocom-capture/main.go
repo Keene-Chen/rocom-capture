@@ -8,11 +8,12 @@ import (
 	"net/netip"
 	"strings"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
+	"github.com/whoisnian/rocom-capture/internal/livecap"
 	"github.com/whoisnian/rocom-capture/internal/pipeline"
 	"github.com/whoisnian/rocom-capture/internal/server"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
 )
 
 func main() {
@@ -76,7 +77,7 @@ func main() {
 		select {}
 	case *iface != "":
 		log.Printf("实时抓包: 网卡=%s 端口=%d", *iface, *port)
-		if err := eng.RunLive(*iface); err != nil {
+		if err := livecap.Run(eng, *iface); err != nil {
 			log.Fatalf("抓包失败(需 root): %v", err)
 		}
 	default:

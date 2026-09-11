@@ -4,10 +4,10 @@ import (
 	"math"
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
 	"github.com/whoisnian/rocom-capture/internal/scene"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
 )
 
 // ---- 眠枭之星/不咕钟零件收集判定(见 docs/map.md 4)----
@@ -30,8 +30,8 @@ import (
 // 80m、果树与首领 150/200m,高度不计,离开约 1.1 倍才撤——24 份 pcap 逐类实测,见 docs/map.md 6)。
 // 但**不能拿它当判定边界**:实测多次出现「更远的实体下发了、更近的没下发」(那是不同类的半径不同,
 // 叠上下面的下发延迟),故只能取一个**保守判定半径**——4 份 pcap 里凡距玩家轨迹 ≤100m 的固定 POI
-// (必定存在那些)全部下发,无一例外,曾据此取 80m;2026-07-19 用户实测 80m 下仍偶发
-// 「接近途中先消失再出现」(结账后实体才到,见下),收窄到 50m——判定圈越小,实体下发越可靠、
+// (必定存在那些)全部下发,无一例外;但 80m 下仍偶发「接近途中先消失再出现」(结账后实体
+// 才到,见下),故取 50m——判定圈越小,实体下发越可靠、
 // 回撤结账位置也越近,代价只是要走得更近才能确认已收集。
 //
 // 但「进圈时刻」不能立即结账:实体不是跨过边界就到,可以晚于进圈 4-31s、晚到时玩家已近至 21-59m

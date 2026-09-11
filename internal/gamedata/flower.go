@@ -6,7 +6,7 @@ package gamedata
 // **刷新行 id**(content_cfg_id)。这里两张表把它换成能画在地图上的东西:
 //   FlowerSpots: 刷新行 id -> 候选点世界坐标(全部候选点静态入库,1581 行)
 //   flowerNpcs:  花种 NPC_CONF id -> 类别(稀兽/命定)与血脉花图
-// 生成见 scripts/gen_gamedata.py 的「稀兽花种」段,图标见 scripts/gen_icons.py 的 flower 组。
+// 生成见 rocom-parse gen_gamedata.py 的「稀兽花种」段,图标见其 gen_icons.py 的 flower 组。
 
 // FlowerNpc 是一种花种 NPC:类别中文名与大地图图标。
 // 同类别下按**血脉**分 18 个 NPC id(普通/草/火/水/…/幻),图标即该血脉的花图。

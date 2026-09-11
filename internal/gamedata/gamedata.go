@@ -13,7 +13,7 @@ import (
 //go:embed data/names.json
 var namesJSON []byte
 
-// 宠物图片(webp,由 scripts/gen_images.py 从 FModel PNG 转出);未生成时仅含占位 .gitkeep。
+// 宠物图片与 UI 图标(webp,rocom-parse 的 gen_images/gen_icons/gen_bigmap 产出,make gamedata 生成)。
 //
 //go:embed all:data/img
 var imageFS embed.FS
@@ -36,7 +36,6 @@ type DB struct {
 	partnerMark  map[string]string
 	speciality   map[string]string
 	medal        map[string]Medal
-	opcodes      map[uint16]string
 	natureEffect map[string]NatureEffect
 	images       map[string]imageEntry  // petbase_id -> 文件名
 	imageBase    map[string]string      // conf_id -> petbase_id(base==自身者不入表)
@@ -86,7 +85,6 @@ func Load() (*DB, error) {
 		PartnerMark  map[string]string            `json:"partner_mark"`
 		Speciality   map[string]string            `json:"speciality"`
 		Medal        map[string]Medal             `json:"medal"`
-		Opcodes      map[string]string            `json:"opcodes"`
 		NatureEffect map[string]NatureEffect      `json:"nature_effect"`
 		FilterIcons  map[string]map[string]string `json:"filter_icons"`
 		BloodIcons   map[string]string            `json:"blood_icons"`
@@ -156,12 +154,6 @@ func Load() (*DB, error) {
 	}
 	if err := json.Unmarshal(namesJSON, &raw); err != nil {
 		return nil, err
-	}
-	opcodes := make(map[uint16]string, len(raw.Opcodes))
-	for k, v := range raw.Opcodes {
-		if n, err := strconv.ParseUint(k, 10, 16); err == nil {
-			opcodes[uint16(n)] = v
-		}
 	}
 	imageBase := make(map[string]string, len(raw.ImageBase))
 	for k, v := range raw.ImageBase {
@@ -285,7 +277,6 @@ func Load() (*DB, error) {
 		partnerMark:  raw.PartnerMark,
 		speciality:   raw.Speciality,
 		medal:        raw.Medal,
-		opcodes:      opcodes,
 		natureEffect: raw.NatureEffect,
 		filterIcons:  raw.FilterIcons,
 		bloodIcons:   raw.BloodIcons,
@@ -309,8 +300,5 @@ func Load() (*DB, error) {
 		nestFurn:     nestFurn,
 	}, nil
 }
-
-// OpcodeNames 返回 opcode 整数到 ZoneSvrCmd 名称的映射。
-func (db *DB) OpcodeNames() map[uint16]string { return db.opcodes }
 
 func key(id uint32) string { return strconv.FormatUint(uint64(id), 10) }

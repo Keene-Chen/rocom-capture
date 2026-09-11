@@ -1,8 +1,8 @@
 package gamedata
 
 // 炫彩(MDT_GLASS / GlassInfo)的外观与「色卡」。色卡就是游戏内点开炫彩标记弹出的那张小卡
-// (客户端 UMG_Pet_DazzlingTips_C),前端按 GlassCard 复刻绘制,素材由 scripts/gen_icons.py
-// 的 glass 组产出、scripts/gen_gamedata.py 写索引。详见 docs/data.md 的炫彩段。
+// (客户端 UMG_Pet_DazzlingTips_C),前端按 GlassCard 复刻绘制,素材由 rocom-parse gen_icons.py
+// 的 glass 组产出、gen_gamedata.py 写索引。详见 rocom-parse docs/data.md 的炫彩段。
 
 // 炫彩类型(GlassInfo.glass_type,dataconfig.GlassType)。
 const (

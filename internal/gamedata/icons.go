@@ -2,7 +2,7 @@ package gamedata
 
 import "strconv"
 
-// UI 图标查找:语义键/枚举值 → embed 的 webp 相对路径(生成流程见 scripts/gen_icons.py)。
+// UI 图标查找:语义键/枚举值 → embed 的 webp 相对路径(生成流程见 rocom-parse 的 gen_icons.py)。
 
 // iconPath 由「原始文件名」拼出 <group>/<name>.webp;name 为空或未 embed 时返回空串。
 func (db *DB) iconPath(group, name string) string {

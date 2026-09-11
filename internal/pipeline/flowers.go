@@ -3,10 +3,10 @@ package pipeline
 import (
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
 	"github.com/whoisnian/rocom-capture/internal/scene"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
 )
 
 // ---- 实时地图的稀兽花种图层(见 docs/map.md 8)----

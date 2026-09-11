@@ -120,13 +120,12 @@ export const getEvolution = (base) => getJSON('/api/evolution?base=' + base)
 // 的上限——连接全被 SSE 占住,底图 webp 与后续 API 都排不上队(实测过:地图一片空白)。
 // 故全局只开一条,收到的消息分发给所有订阅者;各订阅者本来就按 msg.type 过滤,分发多余的无妨。
 let es = null
-let esKey = '' // 当前连接的 URL("" = 没连);账号/调试位一变就重连
+let esKey = '' // 当前连接的 URL("" = 没连);账号一变就重连
 const subs = new Set()
-let debugSubs = 0 // 高频 debug 流只在调试页订阅时才请求
 
 // syncStream 让实际连接与「当前该连什么」保持一致:没人订阅就断开,URL 变了就重连。
 function syncStream() {
-  const q = buildQuery({ debug: debugSubs > 0 ? 1 : undefined })
+  const q = buildQuery({})
   const want = subs.size > 0 ? '/api/stream' + (q ? '?' + q : '') : ''
   if (want === esKey) return
   if (es) { es.close(); es = null } // 断开后服务端随之停止推送
@@ -145,16 +144,14 @@ function syncStream() {
 // subscribe 订阅 SSE，onMsg 收到 {type, account, data}。返回取消函数(幂等)。
 // 服务端按当前 account 过滤(buildQuery 自动带上 ?account=):切账号时各页的 effect 会重订阅,
 // 届时 URL 变化触发重连。
-export function subscribe(onMsg, opts = {}) {
+export function subscribe(onMsg) {
   subs.add(onMsg)
-  if (opts.debug) debugSubs++
   syncStream()
   let done = false
   return () => {
     if (done) return // React StrictMode 会把 effect 的清理跑两遍,别把计数减穿
     done = true
     subs.delete(onMsg)
-    if (opts.debug) debugSubs--
     syncStream()
   }
 }

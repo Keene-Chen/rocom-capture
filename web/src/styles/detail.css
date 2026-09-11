@@ -112,10 +112,8 @@ img.evo-avatar { object-fit: cover; }
 }
 
 /* 炫彩色卡(见 components/glass.jsx):摆在身份区右侧,竖向跨昵称行与标签行。
-   界面上只留卡,外观名/赛季归属挂在左边那枚炫彩标记上,这里的 title 只说点了跳哪儿。
-   卡按原图 280×154 定比例;flex:none 免得被左侧两行挤扁。它通常是个跳 rkpet 的 <a>
-   (display:block 才吃得住宽高与 aspect-ratio,光标也自带 pointer),缺形态编号时
-   退化成不可点、也不带提示的 div。 */
+   界面上只留卡,外观名/赛季归属挂在左边那枚炫彩标记上。
+   卡按原图 280×154 定比例;flex:none 免得被左侧两行挤扁。 */
 .glass-card {
   display: block; position: relative; width: 76px; aspect-ratio: 280 / 154;
   flex: none; transition: transform .12s;

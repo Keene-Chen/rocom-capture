@@ -27,9 +27,9 @@ const (
 	OpNpcPendantInteractRsp = 0x0273 // ZONE_SCENE_NPC_PENDANT_INTERACT_RSP,s2c:回包(ret=0 成功)
 )
 
-// 可收集物的 NPC_CONF id。眠枭之星:A1=蓝、A2=黄、A2-2=紫(2026-07 版新区);「之星」「光点」
+// 可收集物的 NPC_CONF id。眠枭之星:A1=蓝、A2=黄、A2-2=紫;「之星」「光点」
 // 「石像」三种形态都算一颗星(光点交互后出一颗星;石像被星星魔法命中后浮现一颗星,触碰收集)。
-// 不咕钟零件(55901)是 2026-07 更新的收集品,实体行为与星/光点同套(未收集才刷)。
+// 不咕钟零件(55901)是收集品,实体行为与星/光点同套(未收集才刷)。
 // 与 gen_gamedata.py 的 NPC_WHITELIST 同一批;蓝 147/黄 228/紫 104 的构成见 docs/map.md 3。
 var starNpc = map[int32]bool{
 	55162: true, 55163: true, 55601: true, // 独立星

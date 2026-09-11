@@ -3,11 +3,11 @@ package pipeline
 import (
 	"time"
 
-	"github.com/whoisnian/rocom-capture/internal/capture"
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
-	"github.com/whoisnian/rocom-capture/internal/gcp"
 	"github.com/whoisnian/rocom-capture/internal/scene"
 	"github.com/whoisnian/rocom-capture/internal/store"
+	"github.com/whoisnian/rocom-parse/capture"
+	"github.com/whoisnian/rocom-parse/gcp"
 )
 
 // handleScene 处理实时地图、星星与花种相关的场景消息;返回是否已消费。

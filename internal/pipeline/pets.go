@@ -33,14 +33,18 @@ func (p *Pipeline) handlePet(m capture.Message, acc string) {
 
 	switch {
 	// 携带更新后完整 PetData 的回包(换牌:佩戴奖牌已变;进化:base_conf_id 换形态、
-	// 等级/属性/技能刷新;伙伴标记增删改:partner_mark 已变),就地更新宠物(同一 gid)但不产生获得事件。
-	case m.Direction == gcp.S2C && (m.Opcode == pet.OpPetMedalCommonRsp || m.Opcode == pet.OpPetEvoluteRsp ||
-		m.Opcode == pet.OpUpdatePetCollectTagRsp):
+	// 等级/属性/技能刷新),就地更新宠物(同一 gid)但不产生获得事件。
+	case m.Direction == gcp.S2C && (m.Opcode == pet.OpPetMedalCommonRsp || m.Opcode == pet.OpPetEvoluteRsp):
 		if pd := pet.FindNewPet(m.AppBody); pd != nil {
 			pp := pet.ToPet(pd, p.db)
 			sc.UpsertPet(pp)
 			p.srv.Hub().Broadcast("pet", acc, pp)
 		}
+
+	// 伙伴标记增删改:回包只有一条 GT_PET_MARK 的变更(不含 PetData),据其 gid 与改后的
+	// 标记值就地改库里那一只。
+	case m.Direction == gcp.S2C && m.Opcode == pet.OpUpdatePetCollectTagRsp:
+		p.applyPartnerMark(m, sc, acc)
 
 	// 获得新宠物:孵蛋、战斗外捕捉、普通战斗内捕捉(经奖励通知)、花种战斗内捕捉(经玩家同步)、
 	// 传说精灵战后捕捉(catch_way=5,仅经战斗结束通知下发)都把新宠物嵌在子消息里。同一宠物可能
@@ -145,6 +149,20 @@ func (p *Pipeline) applyLayouts(m capture.Message, sc *store.Scoped, acc string)
 		}
 		p.srv.Hub().Broadcast("pet", acc, payload)
 	}
+}
+
+// applyPartnerMark 处理伙伴标记的增删改(0x0403):回包不含 PetData,只在
+// goods_change_info 里给出宠物 gid 与改后的标记值,故取库里那一只改掉标记再广播。
+func (p *Pipeline) applyPartnerMark(m capture.Message, sc *store.Scoped, acc string) {
+	gid, mark, ok := pet.ParseCollectTagRsp(m.AppBody)
+	if !ok {
+		return
+	}
+	pp, err := sc.SetPetPartnerMark(gid, p.db.PartnerMark(mark), p.db.PartnerMarkIcon(mark))
+	if err != nil || pp == nil { // 库中还没有这只(未同步过)时无从更新,等下次全量同步
+		return
+	}
+	p.srv.Hub().Broadcast("pet", acc, pp)
 }
 
 // applyNewPet 从捕捉/孵蛋类回包提取新宠物入库,并产生获得事件。

@@ -50,6 +50,15 @@ s2c 0x1346 ZONE_GET_PET_INFO_BY_PAGE_RSP 明文 body
 `glass_info{glass_type, glass_value}` 原样入库(`glassType`/`glassValue`),色卡本身不入库,读取时查
 gamedata 现算(`pet.FillDerived`),配置里查不到的款退回通用炫彩图标。全部位与外观解读见 [map.md](map.md) 5。
 
+### 伙伴标记
+
+`PetData.partner_mark`(`PetPartnerMarkType`:0=无,其余 9 种名称都叫「标记」、只有图标之分)。
+玩家在宠物盒里加/换/去标记时,`ZONE_UPDATE_PET_COLLECT_TAG_RSP(0x0403)` **不带 PetData**(全长 54 字节),
+改动只体现为 `ret_info.goods_change_info.changes[]` 里一条
+`{type=GT_PET_MARK(39), op=OT_SET, num=改后的标记值, gid=pet_gid}`——加标记、换样式、移除(`num=0`)
+都走这同一条。故 `ParseCollectTagRsp` 取出 (gid, num),`store.SetPetPartnerMark` 就地改那一只的
+`partner_mark` 列与 data JSON(不动其余字段、不写位置),再广播 `pet` 让前端刷新。
+
 ## 2. 获得与减少
 
 五个获得 opcode 统一走 `FindNewPet`(递归找 body 里带中文名且 `conf_id>1000` 的 `PetData`,防误报),

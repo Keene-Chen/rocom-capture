@@ -104,3 +104,36 @@ func ParsePetListRsp(body []byte) *PageResult {
 	})
 	return res
 }
+
+// GoodsTypePetMark 是 dataconfig.GoodsType 的 GT_PET_MARK,即宠物伙伴标记的变更条目。
+const GoodsTypePetMark = 39
+
+// ParseCollectTagRsp 解析 ZoneUpdatePetCollectTagRsp(0x0403,伙伴标记增删改)的 body,
+// 返回被改动的宠物 gid 与改动后的标记值(PetPartnerMarkType,0=无标记)。
+//
+// 该回包**不含 PetData**(只有 54 字节):改动只体现为
+// `ret_info.goods_change_info.changes[]` 里一条 `{type=GT_PET_MARK, op=OT_SET,
+// num=改后标记值, gid=pet_gid}`——加标记、换样式、移除(num=0)都走这一条,
+// 故据 gid 就地改库里那一只的 partner_mark 即可(见 pipeline.applyPartnerMark)。
+// 只认 op=OT_SET(标记是"设成某值"而非增减),ret_code 非 0 或无此条目则返回 false。
+func ParseCollectTagRsp(body []byte) (gid uint32, mark int32, ok bool) {
+	if retResult(body) != 0 {
+		return 0, 0, false
+	}
+	chg := wire.SubMsg(wire.SubMsg(body, 1), 4) // ret_info.goods_change_info
+	for _, c := range wire.Subs(chg, 1) {       // changes(GoodsChangeItem)
+		if t, _ := wire.Varint(c, 1); t != GoodsTypePetMark {
+			continue
+		}
+		if op, _ := wire.Varint(c, 2); op != OpTypeSet {
+			continue
+		}
+		g, has := wire.Varint(c, 14) // gid(=pet_gid)
+		if !has || g == 0 {
+			continue
+		}
+		num, _ := wire.Varint(c, 3) // num:OT_SET 时即改后的标记值,移除标记为 0
+		return uint32(g), int32(num), true
+	}
+	return 0, 0, false
+}

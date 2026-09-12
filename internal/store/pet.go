@@ -227,3 +227,32 @@ func (sc *Scoped) GetPet(gid uint32) (*pet.Pet, error) {
 	}
 	return &p, nil
 }
+
+// SetPetPartnerMark 只改一只宠物的伙伴标记(名称 + 图标),返回更新后的宠物供广播;
+// 库中无该 gid 时返回 nil。伙伴标记回包不携带 PetData(见 pet.ParseCollectTagRsp),
+// 故就地改 data JSON 与用于筛选的 partner_mark 列,不动其余字段(也不写入盒位/队位,
+// 位置仍以 pet_box/pet_team 为权威,读取时注入)。
+func (sc *Scoped) SetPetPartnerMark(gid uint32, mark, icon string) (*pet.Pet, error) {
+	var data string
+	err := sc.rdb.QueryRow(`SELECT data FROM pets WHERE account=? AND gid=?`, sc.account, gid).Scan(&data)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var p pet.Pet
+	if err := json.Unmarshal([]byte(data), &p); err != nil {
+		return nil, err
+	}
+	p.PartnerMark, p.PartnerMarkIcon = mark, icon
+	buf, err := json.Marshal(&p)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := sc.db.Exec(`UPDATE pets SET partner_mark=?,data=?,updated_at=? WHERE account=? AND gid=?`,
+		mark, string(buf), time.Now().Unix(), sc.account, gid); err != nil {
+		return nil, err
+	}
+	return &p, nil
+}

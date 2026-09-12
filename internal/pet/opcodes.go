@@ -18,7 +18,7 @@ const (
 	OpPetBoxSetMarkTypeRsp   = 0x1893 // ZONE_PET_BOX_SET_MARK_TYPE_RSP(6291), 设标记/改名回包(单盒元数据增量)
 	OpPetMedalCommonRsp      = 0x141e // ZONE_PET_MEDAL_COMMON_RSP(5150), 换牌等回包(含更新后 PetData)
 	OpPetEvoluteRsp          = 0x01ae // ZONE_PET_EVOLUTE_RSP(430), 进化回包(含进化后完整 PetData,base_conf_id 已换形态)
-	OpUpdatePetCollectTagRsp = 0x0403 // ZONE_UPDATE_PET_COLLECT_TAG_RSP(1027), 伙伴标记增删改回包(含更新后完整 PetData)
+	OpUpdatePetCollectTagRsp = 0x0403 // ZONE_UPDATE_PET_COLLECT_TAG_RSP(1027), 伙伴标记增删改回包(只有 GT_PET_MARK 变更条目,不含 PetData)
 )
 
 // 盒子操作 opcode 区间(ZoneSvrCmd 十进制 6272-6292,如 TIDY_RSP/SETTING_UP_RSP 携带全量盒子)。

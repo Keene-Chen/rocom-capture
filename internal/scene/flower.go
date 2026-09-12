@@ -8,19 +8,30 @@ import (
 
 // 稀兽花种(实时地图页的花种图层,见 docs/map.md 8)。
 //
-// 大世界同时开着二十来朵花种,每朵关着一只混血精灵,打赢可捕捉。两条消息各给一半信息:
+// 大世界同时开着二十来朵花种,每朵关着一只混血精灵,打赢可捕捉。三条消息:
 //
 //	0x0375 花种列表(客户端登录后自动请求一次,玩家开面板再请求)
-//	  → 每朵花的位置(content_cfg_id 查候选点)、里面是哪只精灵、什么时候刷新;**不含炫彩**。
+//	  → 每朵花的位置(content_cfg_id 查候选点)、里面是哪只精灵、什么时候刷新,
+//	    以及里面那只精灵的**异色/炫彩**(mutation_type + glass_info)。
+//	0x0376 花种增量通知(服务器主动推,某几朵变动时)
+//	  → 同样是 BossNpcInfos,只含变动的那几朵,按 obj_id 就地更新(不是全量,不能拿它替换整套)。
 //	0x0338 单朵花的战斗信息(玩家在地图上点中某朵花 / 走到花前时请求)
-//	  → 该朵花的炫彩(battle_npc_glass_info)与等级;一次只给一朵。
+//	  → 那一朵的炫彩(battle_npc_glass_info);列表没带变异信息时的兜底。
 //
-// 故「哪几朵是炫彩」只能逐朵攒:列表给全集,0x0338 给某一朵的检测结果。
-// **判炫彩只能看 battle_npc_glass_info.glass_type**;同级的 randed_battle_npc_glass 不是炫彩标志,
-// 三份 pcap 实测:炫彩的命定魔力猫 true、**非炫彩的命定火神也是 true**、非炫彩的普通铠甲虫 false
-// ——第二例即反证,拿它当标志会把每一朵命定花种都判成炫彩。
+// 变异信息随列表一起全量下发,故不必再逐朵点开去问:非变异的花也带 glass_info
+// (glass_type=GT_NULL),**有这一支就说明这份列表带变异结果**。判据与客户端一致
+// (UMG_ChallengeItem_C:RefreshFlowerHeadIcon):mutation_type 是位标志,bit0 异色、bit3 炫彩,
+// **两位可以同时置起**——精灵既是异色又是炫彩是有的(客户端只在标记上二选一显示异色,
+// 那是 UI 取舍,不是互斥),故两位都要各自解读、别拿一个盖掉另一个;glass_info 说明是哪一种炫彩。
+// 位标志沿用 star.go 里那套 Mutation*(与 npc_base/PetData 的 mutation_type 同一个枚举)。
+//
+// 0x0338 那条消息里能判炫彩的仍只有 **battle_npc_glass_info.glass_type**;同级的
+// randed_battle_npc_glass 不是炫彩标志,三份 pcap 实测:炫彩的命定魔力猫 true、
+// **非炫彩的命定火神也是 true**、非炫彩的普通铠甲虫 false——第二例即反证,
+// 拿它当标志会把每一朵命定花种都判成炫彩。
 const (
 	OpQueryBossNpcInfoRsp    = 0x0375 // ZONE_SCENE_QUERY_BOSS_NPC_INFO_RSP,s2c:花种/世界首领/传说精灵列表
+	OpSpecFlowerSeedInfoNty  = 0x0376 // ZONE_SCENE_SPEC_FLOWER_SEED_INFO_NTY(886),s2c:花种增量通知(flowers=BossNpcInfos)
 	OpTeamBattleInfoQueryRsp = 0x0338 // ZONE_SCENE_TEAM_BATTLE_INFO_QUERY_RSP,s2c:单个可挑战 NPC 的战斗信息
 	OpPlayerVisitInfoNotify  = 0x039d // ZONE_SCENE_PLAYER_VISIT_INFO_SYNC_NOTIFY,s2c:正在参观谁的世界
 )
@@ -51,6 +62,12 @@ type FlowerSeed struct {
 	ContentID uint32 // content_cfg_id(8),刷新行 id → gamedata.FlowerSpot 查坐标
 	EndTS     int64  // end_timestamp(10),本朵花的有效期终点(见 docs/map.md 8 的刷新规则)
 	SpecID    uint32 // spec_flower_seed_id(11),命定花种才有(活动限定)
+
+	// 里面那只精灵的变异(随列表下发,见本文件头):
+	MutationType int32 // mutation_type(9) 位标志,非变异时服务器省略(缺省 0)
+	GlassType    int32 // glass_info(25).glass_type:0=GT_NULL 非炫彩
+	GlassValue   int32 // glass_info(25).glass_value:是哪一种炫彩(gamedata.GlassDesc)
+	HasMutation  bool  // 本条带了 glass_info ⇒ 这份下发带变异结果,缺省即非变异,不必等 0x0338
 }
 
 // FlowerBattle 是单朵花的战斗信息(0x0338 的 team_battle_info)里做炫彩检测所需的字段。
@@ -65,7 +82,10 @@ type FlowerBattle struct {
 	SpecID     uint32 // spec_flower_seed_id(25)
 	GlassType  int32  // battle_npc_glass_info(32).glass_type:0=非炫彩,1/2=炫彩
 	GlassValue int32  // battle_npc_glass_info(32).glass_value:是哪一种炫彩(gamedata.GlassDesc)
-	Visiting   bool   // 讲的是别人世界里那朵花(带 visit_flower_seed_boss_datas,字段 35)
+	// Shiny 是 battle_npc_shiny(28)。三份 pcap 一次都没下发过(bool 为 false 时省略),故这条路上
+	// 「不是异色」与「服务器没发」分不开——异色的权威来源是列表里的 mutation_type。
+	Shiny    bool
+	Visiting bool // 讲的是别人世界里那朵花(带 visit_flower_seed_boss_datas,字段 35)
 }
 
 // flowerLogicShift:npc_logic_id 的高 32 位即刷新行 id(content_cfg_id),低 32 位是常量。
@@ -104,23 +124,58 @@ type FlowerList struct {
 // ok=false 表示这份回包没法用:ret_code 非 0(服务器拒绝时这一支缺省,拿空列表会把库里的花全删掉)
 // 或根本没有花种那一支。
 func ParseFlowerList(body []byte) (FlowerList, bool) {
-	var out FlowerList
 	body = trimBody(body)
 	if code, ok := retCode(body); ok && code != 0 {
-		return out, false
+		return FlowerList{}, false
 	}
 	infos := subMsg(body, 2)
 	if infos == nil {
-		return out, false
+		return FlowerList{}, false
 	}
+	return parseBossNpcInfos(infos), true
+}
+
+// ParseFlowerSeedNty 从 s2c ZoneSceneSpecFlowerSeedInfoNty(0x0376)取增量花种:
+// flowers(1,BossNpcInfos) → boss_npcs(1,重复 BossNpcInfo),与列表里的项逐字段同构。
+// **这是增量**:只含服务器认为变动了的那几朵(客户端按 content_cfg_id 就地替换,见
+// MagicManualModule:RefreshAllFlowerSeedReq 的 RefreshAll=false 分支),故调用方只能逐朵更新,
+// 不能拿它替换整套。没有 flowers 那一支时 ok=false(该通知没有 ret_info)。
+func ParseFlowerSeedNty(body []byte) (FlowerList, bool) {
+	infos := subMsg(trimBody(body), 1)
+	if infos == nil {
+		return FlowerList{}, false
+	}
+	return parseBossNpcInfos(infos), true
+}
+
+// parseBossNpcInfos 解一个 BossNpcInfos(0x0375 的 flower_npcs / 0x0376 的 flowers):
+// boss_npcs(1) 逐条解成 FlowerSeed,任一条带 visit_flower_seed_boss_datas 即整份标记为参观中。
+func parseBossNpcInfos(infos []byte) FlowerList {
+	var out FlowerList
 	scanFields(infos, func(num protowire.Number, typ protowire.Type, val []byte, _ uint64) {
 		if num != 1 || typ != protowire.BytesType { // boss_npcs
 			return
 		}
 		var f FlowerSeed
-		scanFields(val, func(n protowire.Number, t protowire.Type, _ []byte, v uint64) {
-			if n == visitFlowerField && t == protowire.BytesType {
-				out.Visiting = true
+		scanFields(val, func(n protowire.Number, t protowire.Type, sub []byte, v uint64) {
+			if t == protowire.BytesType {
+				switch n {
+				case visitFlowerField:
+					out.Visiting = true
+				case 25: // glass_info(GlassInfo):非炫彩的花也带(glass_type=GT_NULL),故它在即有变异结果
+					f.HasMutation = true
+					scanFields(sub, func(gn protowire.Number, gt protowire.Type, _ []byte, gv uint64) {
+						if gt != protowire.VarintType {
+							return
+						}
+						switch gn {
+						case 1:
+							f.GlassType = int32(gv)
+						case 2:
+							f.GlassValue = int32(gv)
+						}
+					})
+				}
 				return
 			}
 			if t != protowire.VarintType {
@@ -137,6 +192,8 @@ func ParseFlowerList(body []byte) (FlowerList, bool) {
 				f.ObjID = v
 			case 8:
 				f.ContentID = uint32(v)
+			case 9:
+				f.MutationType = int32(v)
 			case 10:
 				f.EndTS = int64(v)
 			case 11:
@@ -147,7 +204,7 @@ func ParseFlowerList(body []byte) (FlowerList, bool) {
 			out.Seeds = append(out.Seeds, f)
 		}
 	})
-	return out, true
+	return out
 }
 
 // ParseFlowerBattle 从 s2c ZoneSceneTeamBattleInfoQueryRsp(0x0338)取单个可挑战 NPC 的战斗信息:
@@ -200,6 +257,8 @@ func ParseFlowerBattle(body []byte) (FlowerBattle, bool) {
 			b.SpecID = uint32(v)
 		case 27:
 			b.EndTS = int64(v)
+		case 28:
+			b.Shiny = v != 0
 		}
 	})
 	return b, b.ObjID != 0 && b.CfgID != 0

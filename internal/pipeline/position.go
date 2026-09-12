@@ -40,9 +40,11 @@ func (p *Pipeline) handleScene(m capture.Message, acc string) bool {
 		p.onFlowerHarvested(m.Session, acc, scene.ParseBattleGoneNpcs(m.AppBody), m.Time)
 	case m.Direction == gcp.C2S && m.Opcode == scene.OpSceneMoveReq:
 		p.onMove(m, acc)
-	// 稀兽花种图层(见 flowers.go):列表给全集,单朵详情给炫彩
+	// 稀兽花种图层(见 flowers.go):列表给全集(含异色/炫彩),通知给增量,单朵详情兜底
 	case m.Direction == gcp.S2C && m.Opcode == scene.OpQueryBossNpcInfoRsp:
 		p.onFlowerList(m, acc)
+	case m.Direction == gcp.S2C && m.Opcode == scene.OpSpecFlowerSeedInfoNty:
+		p.onFlowerSeedNty(m, acc)
 	case m.Direction == gcp.S2C && m.Opcode == scene.OpTeamBattleInfoQueryRsp:
 		p.onFlowerBattleInfo(m, acc)
 	case m.Direction == gcp.S2C && m.Opcode == scene.OpPlayerVisitInfoNotify:

@@ -171,3 +171,92 @@ func TestParseFlowerBattle(t *testing.T) {
 		t.Errorf("非炫彩花种不该解出炫彩: %+v", b)
 	}
 }
+
+// bossNpcMutation 追加一项的变异字段:mutation_type(9)非 0 才发(与服务器一致),
+// glass_info(25)则连非炫彩的花也发(glass_type=GT_NULL)——**有这一支就说明这次下发带变异结果**。
+func bossNpcMutation(b []byte, mtype, gtype, gvalue int32) []byte {
+	if mtype != 0 {
+		b = vint(b, 9, uint64(mtype))
+	}
+	var gi []byte
+	gi = vint(gi, 1, uint64(gtype))
+	gi = vint(gi, 2, uint64(gvalue))
+	return msg(b, 25, gi)
+}
+
+// 列表自带异色/炫彩(2026-09-10 大版本起,实测每条都有 glass_info):
+// 异色与炫彩可同时置位,glass_info 说明是哪一种炫彩;没有 glass_info 那一支的条目留给 0x0338 兜底。
+func TestParseFlowerListMutation(t *testing.T) {
+	shiny := bossNpcMutation(bossNpcInfo(20135, 5, 3012, 2100044, 9279722995167909004, 1789243200, 0),
+		MutationShiny|MutationGlass, 2, 1)
+	glassy := bossNpcMutation(bossNpcInfo(20143, 5, 3174, 2100034, 9279722995167909003, 1789243200, 0),
+		MutationGlass, 1, 0x100002)
+	plain := bossNpcMutation(bossNpcInfo(20139, 5, 3335, 652588, 9279722995167909005, 1789243200, 0), 0, 0, 0)
+	legacy := bossNpcInfo(20128, 5, 3401, 652590, 9279722995167909006, 1789243200, 0) // 不带变异那一支
+
+	var flowers []byte
+	for _, one := range [][]byte{shiny, glassy, plain, legacy} {
+		flowers = msg(flowers, 1, one)
+	}
+	var body []byte
+	body = msg(body, 1, vint(nil, 1, 0)) // ret_info.ret_code = 0
+	body = msg(body, 2, flowers)
+	body = append(body, tsf4gMark...)
+
+	got, ok := ParseFlowerList(body)
+	if !ok || len(got.Seeds) != 4 {
+		t.Fatalf("解析结果 ok=%v 花种数=%d, 期望 true/4", ok, len(got.Seeds))
+	}
+	want := []struct {
+		mutation           int32
+		gtype, gvalue      int32
+		hasMutation        bool
+		shinyBit, glassBit bool
+	}{
+		{MutationShiny | MutationGlass, 2, 1, true, true, true},
+		{MutationGlass, 1, 0x100002, true, false, true},
+		{0, 0, 0, true, false, false},
+		{0, 0, 0, false, false, false},
+	}
+	for i, w := range want {
+		f := got.Seeds[i]
+		if f.HasMutation != w.hasMutation {
+			t.Errorf("第 %d 朵 HasMutation = %v, 期望 %v", i+1, f.HasMutation, w.hasMutation)
+		}
+		if f.MutationType != w.mutation || f.GlassType != w.gtype || f.GlassValue != w.gvalue {
+			t.Errorf("第 %d 朵 = (mutation %d, glass %d/%d), 期望 (%d, %d/%d)",
+				i+1, f.MutationType, f.GlassType, f.GlassValue, w.mutation, w.gtype, w.gvalue)
+		}
+		if (f.MutationType&MutationShiny != 0) != w.shinyBit || (f.MutationType&MutationGlass != 0) != w.glassBit {
+			t.Errorf("第 %d 朵位标志解读有误: mutation=%d", i+1, f.MutationType)
+		}
+		// 描述列照旧解出来(变异字段不该挤掉别的)
+		if f.ObjID == 0 || f.CfgID == 0 || f.ContentID == 0 {
+			t.Errorf("第 %d 朵描述字段丢了: %+v", i+1, f)
+		}
+	}
+}
+
+// 0x0376 增量通知:flowers(1) 里是同构的 BossNpcInfo,没有 ret_info。
+func TestParseFlowerSeedNty(t *testing.T) {
+	one := bossNpcMutation(bossNpcInfo(20135, 5, 3012, 2100044, 9279722995167909004, 1789243200, 0),
+		MutationShiny, 0, 0)
+	body := msg(nil, 1, msg(nil, 1, one))
+	body = append(body, tsf4gMark...)
+
+	got, ok := ParseFlowerSeedNty(body)
+	if !ok {
+		t.Fatal("增量通知应可用")
+	}
+	if len(got.Seeds) != 1 {
+		t.Fatalf("增量花种数 = %d, 期望 1", len(got.Seeds))
+	}
+	f := got.Seeds[0]
+	if f.ObjID != 9279722995167909004 || f.MutationType != MutationShiny || !f.HasMutation {
+		t.Errorf("增量项 = %+v", f)
+	}
+	// 没有 flowers 那一支时不该当成空列表(否则会把整层清掉)
+	if _, ok := ParseFlowerSeedNty(append([]byte{}, tsf4gMark...)); ok {
+		t.Error("空通知不该 ok")
+	}
+}

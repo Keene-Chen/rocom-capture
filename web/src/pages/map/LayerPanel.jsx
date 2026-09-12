@@ -10,6 +10,31 @@ import { WILD_LAYERS } from './useWildPets'
 // 复用宠物列表那套 .filters:桌面常驻左列,移动端为侧滑抽屉(collapsed 控制开合)。
 export default function LayerPanel({ pois, wilds, flowers, paint, collapsed, onClose }) {
   const { kinds, poiOn, togglePoi, collectOn, toggleCollect } = pois
+  // 花种没有收集模式(异色/炫彩随列表就位,不用逐朵去点),故排在同样没有收集开关的图层
+  // (魔力之源…眠枭庇护所)之后、带收集开关的那批(眠枭之星/不咕钟零件)之前;
+  // 一个收集图层都没有的场景里就排在末尾。
+  const flowerAt = (() => {
+    const i = kinds.findIndex((k) => k.collect)
+    return i < 0 ? kinds.length : i
+  })()
+  /* 稀兽花种同样是地图图标,只是点位不固定(每天/每两周重投),故不走后端的 POI kinds,
+     而由 useFlowers 从流量里攒出来。
+     本场景没有花种时整行不出现,与上面那些「本场景无点位就不给开关」的图层一致。
+     图上有异色或炫彩花种时整行高亮:开这层就是为了找它,不该还得自己在几十朵里挨个看。
+     参观好友世界时画的是**好友的**花,图层名标出来,免得当成自己的。 */
+  const flowerRow = flowers.num > 0 ? (
+    <div className="map-layer-row" key="flowers">
+      <button className={'map-layer-btn' + (flowers.on ? ' on' : '') + (flowers.on && flowers.mutated ? ' mutated' : '')}
+        onClick={flowers.toggle}
+        title={[flowers.visit ? '正在参观的好友世界里的花种' : null,
+          flowers.mutated ? `其中 ${flowers.mutated} 朵是异色或炫彩` : null,
+        ].filter(Boolean).join(' · ') || undefined}>
+        <img src={imgURL('flower/img_icon_huazhong_png.webp')} alt="" draggable={false} />
+        <span className="map-layer-name">{flowers.visit ? '稀兽花种(好友)' : '稀兽花种'}</span>
+        <span className="muted">{flowers.num}</span>
+      </button>
+    </div>
+  ) : null
   return (
     <>
       <div className={'filters-backdrop' + (collapsed ? '' : ' show')} onClick={onClose} />
@@ -22,40 +47,26 @@ export default function LayerPanel({ pois, wilds, flowers, paint, collapsed, onC
           <label>地图图标</label>
           {kinds.length === 0 && flowers.num === 0 &&
             <span className="muted" style={{ fontSize: 13 }}>该场景暂无可显示的图标</span>}
-          {kinds.map((k) => (
-            <div className="map-layer-row" key={k.k}>
-              <button className={'map-layer-btn' + (poiOn.has(k.k) ? ' on' : '')}
-                onClick={() => togglePoi(k.k)}>
-                <img src={imgURL(k.icon)} alt="" draggable={false} />
-                <span className="map-layer-name">{k.n}</span>
-                <span className="muted">{k.num}</span>
-              </button>
-              {k.collect && (
-                <button className={'map-collect-btn' + (collectOn.has(k.k) ? ' on' : '')}
-                  onClick={() => toggleCollect(k.k)} disabled={!poiOn.has(k.k)}
-                  title="收集模式:隐藏已收集的点(需先开启图层)" aria-label={`${k.n}收集模式`}
-                  aria-pressed={collectOn.has(k.k)}>✓</button>
-              )}
-            </div>
+          {kinds.map((k, i) => (
+            <React.Fragment key={k.k}>
+              {i === flowerAt && flowerRow}
+              <div className="map-layer-row">
+                <button className={'map-layer-btn' + (poiOn.has(k.k) ? ' on' : '')}
+                  onClick={() => togglePoi(k.k)}>
+                  <img src={imgURL(k.icon)} alt="" draggable={false} />
+                  <span className="map-layer-name">{k.n}</span>
+                  <span className="muted">{k.num}</span>
+                </button>
+                {k.collect && (
+                  <button className={'map-collect-btn' + (collectOn.has(k.k) ? ' on' : '')}
+                    onClick={() => toggleCollect(k.k)} disabled={!poiOn.has(k.k)}
+                    title="收集模式:隐藏已收集的点(需先开启图层)" aria-label={`${k.n}收集模式`}
+                    aria-pressed={collectOn.has(k.k)}>✓</button>
+                )}
+              </div>
+            </React.Fragment>
           ))}
-          {/* 稀兽花种同样是地图图标,只是点位不固定(每天/每两周重投),故不走后端的 POI kinds,
-              而由 useFlowers 从流量里攒出来。
-              本场景没有花种时整行不出现,与上面那些「本场景无点位就不给开关」的图层一致。
-              图上有炫彩花种时整行高亮:开这层就是为了找它,不该还得自己在几十朵里挨个看。
-              参观好友世界时画的是**好友的**花,图层名标出来,免得当成自己的。 */}
-          {flowers.num > 0 && (
-            <div className="map-layer-row">
-              <button className={'map-layer-btn' + (flowers.on ? ' on' : '') + (flowers.on && flowers.glassy ? ' glassy' : '')}
-                onClick={flowers.toggle}
-                title={[flowers.visit ? '正在参观的好友世界里的花种' : null,
-                  flowers.glassy ? `其中 ${flowers.glassy} 朵已检测出炫彩` : null,
-                ].filter(Boolean).join(' · ') || undefined}>
-                <img src={imgURL('flower/img_icon_huazhong_png.webp')} alt="" draggable={false} />
-                <span className="map-layer-name">{flowers.visit ? '稀兽花种(好友)' : '稀兽花种'}</span>
-                <span className="muted">{flowers.num}</span>
-              </button>
-            </div>
-          )}
+          {flowerAt >= kinds.length && flowerRow}
         </div>
         <div className="filter-group">
           <label>野生宠物</label>

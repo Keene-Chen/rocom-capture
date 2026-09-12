@@ -52,8 +52,8 @@ type flowerMark struct {
 	Name string  `json:"n"`               // 花里那只精灵的形态名(火神…);查不到时为空
 	Icon string  `json:"icon"`            // 血脉花图相对路径 flower/<原名>.webp
 	Lv   int32   `json:"lv,omitempty"`    // 由星级查表算出(gamedata.FlowerLevel),列表一到就有
-	St   int     `json:"st"`              // 0 未检测 / 1 普通 / 2 炫彩(store.Flower*)
-	Glas string  `json:"glass,omitempty"` // 炫彩外观描述(仅 st=2)
+	St   int     `json:"st"`              // 0 未检测 / 1 普通 / 2 炫彩 / 3 异色(store.Flower*)
+	Glas string  `json:"glass,omitempty"` // 炫彩外观描述;非空 ⇔ 炫彩,故 st=3 且有它 = 既异色又炫彩
 }
 
 // flowerMarks 把花种投影成地图标记(无底图场景/未收录候选点的行跳过)。

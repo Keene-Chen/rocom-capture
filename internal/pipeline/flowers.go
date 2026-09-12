@@ -11,16 +11,17 @@ import (
 
 // ---- 实时地图的稀兽花种图层(见 docs/map.md 8)----
 //
-// 大世界同时开着二十来朵花种,每朵关着一只混血精灵。两条消息各给一半:
+// 大世界同时开着二十来朵花种,每朵关着一只混血精灵。三条消息:
 //
-//	0x0375 花种列表  → 全集(位置/精灵/星级/有效期),**不含炫彩**;客户端登录后自动请求一次,
-//	                   玩家开花种面板再请求一次。等级不在下发字段里,由星级查表算出
+//	0x0375 花种列表  → 全集(位置/精灵/星级/有效期)**连同异色/炫彩**;客户端登录后自动请求
+//	                   一次,玩家开花种面板再请求一次。等级不在下发字段里,由星级查表算出
 //	                   (gamedata.FlowerLevel),故列表一到就有等级。
-//	0x0338 单朵详情  → 那一朵的炫彩;玩家在地图上点中某朵花、或走到花前时客户端才请求。
+//	0x0376 增量通知  → 服务器主动推的那几朵(同 BossNpcInfos),按 obj_id 就地更新,不是全量。
+//	0x0338 单朵详情  → 那一朵的炫彩;玩家点中某朵花/走到花前时客户端才请求。
 //
-// 故炫彩只能**逐朵攒**:列表里的花先记「未检测」,玩家点过哪朵就把哪朵的结果补上。
-// 本项目是被动抓包,不能代替客户端去查,没点过的花永远是未检测——前端因此要留三态,
-// 绝不能把「没检测过」显示成「普通」。
+// 异色/炫彩随列表一起来(mutation_type + glass_info,见 scene/flower.go 头),所以整层一到就
+// 齐全,不必再逐朵攒。0x0338 只作兜底:万一某次下发不带变异那一支,那些花仍是「未检测」,
+// 玩家点开哪朵才补上哪朵——前端因此仍要留住「未检测」这一态,绝不能显示成「普通」。
 //
 // **参观好友世界时看到的是好友的花**:传送去好友的世界再打开花种面板,服务器给的是**那个世界**
 // 的花(obj_id 与自己的完全不同、里面的精灵也不是自己的)。这些花照样画在地图上——正好用来
@@ -73,10 +74,7 @@ func (p *Pipeline) onFlowerList(m capture.Message, acc string) {
 		if _, ok := p.db.FlowerNpc(f.CfgID); !ok {
 			continue
 		}
-		rows = append(rows, store.FlowerRow{
-			ObjID: f.ObjID, CfgID: f.CfgID, Star: f.Star, PetBase: f.PetBase,
-			ContentID: f.ContentID, SpecID: f.SpecID, EndTS: f.EndTS,
-		})
+		rows = append(rows, p.flowerRow(f))
 	}
 	cs := p.conn(m.Session)
 	if list.Visiting {
@@ -97,9 +95,77 @@ func (p *Pipeline) onFlowerList(m capture.Message, acc string) {
 	}
 }
 
-// onFlowerBattleInfo 收下单朵花的战斗信息(0x0338)——**炫彩检测的唯一来源**。
+// flowerRow 把列表/通知里的一朵花转成库里那一行,连同异色/炫彩。
+//
+// 判据与客户端 UMG_ChallengeItem_C:RefreshFlowerHeadIcon 一致:mutation_type 位标志,
+// bit0 异色、bit3 炫彩,**两位可以同时置起**(既异色又炫彩的精灵是有的)。故 State 记异色与否、
+// Glass 记炫彩与否,两件事分开存(见 store.Flower*):State=FlowerShiny 且 Glass 非空即两者兼有。
+// 没带 glass_info 那一支(HasMutation=false)时留「未检测」,等 0x0338 兜底:非变异的花也带
+// glass_info(glass_type=GT_NULL),所以「这一支在不在」正好区分「服务器发了没」与「不是变异」。
+func (p *Pipeline) flowerRow(f scene.FlowerSeed) store.FlowerRow {
+	r := store.FlowerRow{
+		ObjID: f.ObjID, CfgID: f.CfgID, Star: f.Star, PetBase: f.PetBase,
+		ContentID: f.ContentID, SpecID: f.SpecID, EndTS: f.EndTS,
+	}
+	if !f.HasMutation {
+		return r
+	}
+	switch {
+	case f.MutationType&scene.MutationShiny != 0:
+		r.State = store.FlowerShiny
+	case f.MutationType&scene.MutationGlass != 0:
+		r.State = store.FlowerGlassy
+	default:
+		r.State = store.FlowerPlain
+	}
+	if f.GlassType != gamedata.GlassNull {
+		r.Glass = p.db.GlassDesc(f.GlassType, f.GlassValue)
+		if r.Glass == "" { // 配置里查不到(新赛季款/新色号)时至少标出是炫彩
+			r.Glass = "炫彩"
+		}
+	}
+	return r
+}
+
+// onFlowerSeedNty 收下花种增量通知(0x0376):服务器主动推的那几朵,按 obj_id 就地更新。
+// **不是全量**,所以只 upsert、不做「不在列表里就删」的对账(那是 onFlowerList 的事)。
+// 参观别人世界期间同样只动内存里那套。
+func (p *Pipeline) onFlowerSeedNty(m capture.Message, acc string) {
+	list, ok := scene.ParseFlowerSeedNty(m.AppBody)
+	if !ok || len(list.Seeds) == 0 {
+		return
+	}
+	rows := make([]store.FlowerRow, 0, len(list.Seeds))
+	for _, f := range list.Seeds {
+		if _, ok := p.db.FlowerNpc(f.CfgID); !ok {
+			continue
+		}
+		rows = append(rows, p.flowerRow(f))
+	}
+	if len(rows) == 0 {
+		return
+	}
+	cs := p.conn(m.Session)
+	if cs.visitOwner != 0 || list.Visiting { // 参观中:只更新内存里那套好友的花
+		if cs.visitFlowers == nil {
+			return
+		}
+		for _, r := range rows {
+			cs.visitFlowers[r.ObjID] = r
+		}
+		p.pushFlowers(m.Session, acc, m.Time)
+		return
+	}
+	if p.st.For(acc).UpsertFlowers(rows) == nil {
+		p.pushFlowers(m.Session, acc, m.Time)
+	}
+}
+
+// onFlowerBattleInfo 收下单朵花的战斗信息(0x0338)——列表没带变异那一支时的兜底来源。
 //
 // 同一条消息也用于世界首领/传说精灵的挑战面板,故先按 NPC 表确认是花种。
+// 炫彩看 battle_npc_glass_info、异色看 battle_npc_shiny;后者三份 pcap 一次都没下发过,
+// 故这条路上判出的「非异色」只是「没说」,异色的权威来源仍是列表里的 mutation_type。
 // 判炫彩只看 battle_npc_glass_info.glass_type:同级的 randed_battle_npc_glass 不是炫彩标志
 // (非炫彩的命定花种同样是 true),三份 pcap 实测,详见 docs/map.md 8。
 func (p *Pipeline) onFlowerBattleInfo(m capture.Message, acc string) {
@@ -115,8 +181,13 @@ func (p *Pipeline) onFlowerBattleInfo(m capture.Message, acc string) {
 		ContentID: b.ContentID, SpecID: b.SpecID, EndTS: b.EndTS,
 		State: store.FlowerPlain,
 	}
+	if b.Shiny {
+		row.State = store.FlowerShiny
+	}
 	if b.GlassType != gamedata.GlassNull {
-		row.State = store.FlowerGlassy
+		if !b.Shiny { // 既异色又炫彩时 State 记异色,炫彩由 Glass 表达(见 store.Flower*)
+			row.State = store.FlowerGlassy
+		}
 		row.Glass = p.db.GlassDesc(b.GlassType, b.GlassValue)
 		if row.Glass == "" { // 配置里查不到(新赛季款/新色号)时至少标出是炫彩
 			row.Glass = "炫彩"

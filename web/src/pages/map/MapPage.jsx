@@ -6,7 +6,7 @@ import { ZOOM_FALLBACK, defaultZoom, SMOOTH_TAU, snap, posAt, makeAnchor } from 
 import { usePanZoom } from './usePanZoom'
 import { usePois } from './usePois'
 import { useWildPets, wildTags, wildRing } from './useWildPets'
-import { useFlowers, flowerTitle, FL_GLASSY } from './useFlowers'
+import { useFlowers, flowerTitle, isMutated } from './useFlowers'
 import { useHomeNests, nestTitle } from './useHomeNests'
 import { usePaint } from './usePaint'
 import { PetDetailModal } from '../../components/PetDetailModal'
@@ -199,11 +199,12 @@ export default function MapPage() {
                 src={imgURL(pois.iconOf[p.k])} title={p.n}
                 style={{ left: p.u * mapPx, top: p.v * mapPx }} />
             ))}
-            {/* 稀兽花种:按花里那只混血精灵的血脉画大地图图标(与游戏内一致),已检测出炫彩的描一圈金色
-                ——与眠枭之星收集模式里「已确认还在」的点同一个视觉语言。定位方式同 POI。 */}
+            {/* 稀兽花种:按花里那只混血精灵的血脉画大地图图标(与游戏内一致),里面是异色或炫彩个体的
+                描一圈金色——与眠枭之星收集模式里「已确认还在」的点同一个视觉语言;是哪一种写在
+                悬浮说明里,不另加标识。定位方式同 POI。 */}
             {flowers.marks.map((f) => (
               <img key={f.id} alt="" draggable={false}
-                className={'map-poi map-flower' + (f.st === FL_GLASSY ? ' sure' : '')}
+                className={'map-poi map-flower' + (isMutated(f) ? ' sure' : '')}
                 src={imgURL(f.icon)} title={flowerTitle(f)}
                 style={{ left: f.u * mapPx, top: f.v * mapPx }} />
             ))}

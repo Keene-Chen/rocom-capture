@@ -63,3 +63,79 @@ func TestReplaceFlowers(t *testing.T) {
 		}
 	}
 }
+
+// 列表自带变异结果(2026-09-10 大版本起)时以列表为准:能把炫彩改成普通(精灵重投后那朵花
+// 换了只普通个体),也能标出异色;而列表没带结果(state=0)时绝不能抹掉已检测出的炫彩。
+// 增量通知(0x0376)只增改不删:缺席的花照旧开着。
+func TestFlowerMutationFromList(t *testing.T) {
+	st, err := New(filepath.Join(t.TempDir(), "t.db"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.db.Close()
+	sc := st.For("UID:1")
+
+	rows := []FlowerRow{
+		{ObjID: 9279722995167909004, CfgID: 20135, Star: 5, PetBase: 3012, ContentID: 2100044, EndTS: 1789243200,
+			State: FlowerShiny, Glass: "暗夜拾光"},
+		{ObjID: 9279722995167909003, CfgID: 20143, Star: 5, PetBase: 3174, ContentID: 2100034, EndTS: 1789243200,
+			State: FlowerGlassy, Glass: "亮X暗 - 浅绿青·四角星"},
+	}
+	if err := sc.ReplaceFlowers(rows); err != nil {
+		t.Fatal(err)
+	}
+	byID := func() map[uint64]FlowerRow {
+		m := map[uint64]FlowerRow{}
+		for _, r := range sc.Flowers(0) {
+			m[r.ObjID] = r
+		}
+		return m
+	}
+	got := byID()
+	if got[rows[0].ObjID].State != FlowerShiny || got[rows[1].ObjID].State != FlowerGlassy {
+		t.Fatalf("列表带来的变异结果没入库: %+v", got)
+	}
+	// 既异色又炫彩:State 记异色,炫彩由 Glass 表达,两样都得留住(最稀罕的一种,不能互相盖掉)
+	if r := got[rows[0].ObjID]; r.State != FlowerShiny || r.Glass != "暗夜拾光" {
+		t.Errorf("既异色又炫彩的那朵丢了信息: %+v", r)
+	}
+
+	// 同一朵花里的精灵重投成普通个体:列表说普通就得是普通
+	rows[1].State, rows[1].Glass = FlowerPlain, ""
+	if err := sc.ReplaceFlowers(rows); err != nil {
+		t.Fatal(err)
+	}
+	if r := byID()[rows[1].ObjID]; r.State != FlowerPlain || r.Glass != "" {
+		t.Errorf("列表说普通却没改过来: %+v", r)
+	}
+
+	// 某次下发不带变异那一支(state=0):已有结果必须保住
+	bare := []FlowerRow{{ObjID: rows[0].ObjID, CfgID: 20135, Star: 5, PetBase: 3012, ContentID: 2100044, EndTS: 1789243200}}
+	if err := sc.ReplaceFlowers(bare); err != nil {
+		t.Fatal(err)
+	}
+	if r := byID()[rows[0].ObjID]; r.State != FlowerShiny || r.Glass == "" {
+		t.Errorf("不带变异的列表抹掉了已有结果: %+v", r)
+	}
+
+	// 增量通知:只动通知里那朵,不碰别的、也不删缺席的
+	rows[1].State, rows[1].Glass = FlowerGlassy, "亮X暗 - 浅绿青·四角星" // 复原成炫彩,作为「不该被动到」的对照
+	if err := sc.ReplaceFlowers(rows); err != nil {
+		t.Fatal(err)
+	}
+	nty := []FlowerRow{{ObjID: rows[0].ObjID, CfgID: 20135, Star: 5, PetBase: 3012, ContentID: 2100044,
+		EndTS: 1789243200, State: FlowerPlain}}
+	if err := sc.UpsertFlowers(nty); err != nil {
+		t.Fatal(err)
+	}
+	got = byID()
+	if len(got) != 2 {
+		t.Fatalf("增量通知后行数 = %d, 期望 2(缺席的花不该被删)", len(got))
+	}
+	if got[rows[0].ObjID].State != FlowerPlain {
+		t.Errorf("增量通知没更新那一朵: %+v", got[rows[0].ObjID])
+	}
+	if got[rows[1].ObjID].State != FlowerGlassy {
+		t.Errorf("增量通知动了别的花: %+v", got[rows[1].ObjID])
+	}
+}

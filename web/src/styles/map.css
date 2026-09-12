@@ -89,10 +89,12 @@
 }
 /* 收集模式下「已确认还在」的可收集点(星星/零件):描一圈金色,与尚未走到过的候选点区分开。 */
 .map-poi.sure { filter: drop-shadow(0 0 3px #ffd54a) drop-shadow(0 0 6px #ffd54a); }
-/* 稀兽花种标记:与 POI 同一套定位/尺寸(.map-poi,26px),不再单独放大——花图挨着别的
-   图标时大一圈显得突兀,血脉配色靠悬浮说明认更准。已检测出炫彩的复用 .map-poi.sure 的金圈。
-   标记不可点,只有悬浮说明(未检测/普通/炫彩),用 help 光标提示「这儿有信息」。 */
-.map-flower { cursor: help; }
+/* 稀兽花种标记:沿用 .map-poi 的定位,但**高度另设 50px**——花图是 100×100 的成品
+   (血脉花 + 白描边 + 右上角血脉徽章,与游戏内大地图同一张),花本体只占画布下半约 51%,
+   按 POI 的 26px 渲染会缩成一半大;50px 下花本体约 25px,与其它 POI 图标等大。
+   描边与投影都在素材里,故不额外加 filter(异色/炫彩的金晕仍由 .map-poi.sure 给)。
+   标记不可点,只有悬浮说明(普通/炫彩/异色),用 help 光标提示「这儿有信息」。 */
+.map-flower { cursor: help; height: 50px; filter: none; }
 
 /* 野生宠物标记:圆形头像 + 类别描边。描边色由 JS 按命中图层算(见 useWildPets 的 wildRing):
    主描边 = 最稀有的那层,次一层再加一圈 box-shadow 外环——组合数太多,不走 CSS 类。 */
@@ -144,10 +146,10 @@
 .map-layer-btn:hover { border-color: var(--accent); }
 .map-layer-btn.on { color: var(--fg); border-color: var(--accent); }
 .map-layer-btn:not(.on) img { filter: grayscale(1); opacity: .45; } /* 关闭态:图标灰掉 */
-/* 花种图层行:图上有已检测出的炫彩花种时整行高亮(金色边 + 淡金底),开着图层才亮——
-   这一层就是为找炫彩而开的,不该还要自己在几十朵花里挨个看。
+/* 花种图层行:图上有异色或炫彩花种时整行高亮(金色边 + 淡金底),开着图层才亮——
+   这一层就是为找它们而开的,不该还要自己在几十朵花里挨个看。
    必须写在 .map-layer-btn.on 之后:两者特异度相同,写在前面会被 .on 的 accent 边框盖掉。 */
-.map-layer-btn.glassy { border-color: var(--gold); background: rgba(255, 213, 74, .12); }
+.map-layer-btn.mutated { border-color: var(--gold); background: rgba(255, 213, 74, .12); }
 
 /* 窄屏:图层栏收进侧滑抽屉(同宠物列表的筛选),地图占满整宽,左下角浮出图层入口。 */
 @media (max-width: 760px) {

@@ -9,26 +9,34 @@ import { getFlowers, subscribe } from '../../api'
 // **参观好友世界时画的是好友的花**(方便提醒他去捉):后端据 0x039d 判断在谁的世界里,
 // 载荷的 visit 标志说明这一套是不是别人的,图层名随之标出来——否则分不清图上这些是谁的花。
 //
-// **三态,不是两态**:花种列表里没有炫彩,炫彩只在玩家点开某朵花时服务器才单独下发。
-// 被动抓包不能代替客户端去问,所以没点过的花永远是「未检测」——绝不能显示成「普通」。
+// **异色/炫彩随花种列表一起来**(mutation_type + glass_info),整层一到就齐全;只在某次下发
+// 不带变异那一支时才退回「玩家点开某朵花才知道」,故「未检测」这一态仍要留住
+// ——被动抓包不能代替客户端去问,没结果的花绝不能显示成「普通」。
 const LS_KEY = 'map.flowerLayer'     // 图层开关(默认关)
 const load = (key) => { try { return localStorage.getItem(key) === '1' } catch { return false } }
 const save = (key, v) => { try { localStorage.setItem(key, v ? '1' : '0') } catch { /* 隐私模式等 */ } }
 
-// 检测状态(与后端 store.Flower* 对应)。
-export const FL_UNDETECTED = 0 // 还没为这朵花收到过详情
-export const FL_PLAIN = 1      // 检测过:非炫彩
-export const FL_GLASSY = 2     // 检测过:炫彩
+// 花里那只精灵的变异状态(与后端 store.Flower* 对应)。**异色与炫彩可以同时成立**
+// (游戏里就有既异色又炫彩的精灵):st 只记异色与否,是不是炫彩看 glass 字段(非空 ⇔ 炫彩)。
+export const FL_UNDETECTED = 0 // 还没拿到这朵花的变异结果
+export const FL_PLAIN = 1      // 普通:非异色非炫彩
+export const FL_GLASSY = 2     // 炫彩(非异色)
+export const FL_SHINY = 3      // 异色(可能同时炫彩,那时 glass 也非空)
 
-const ST_NAME = { [FL_UNDETECTED]: '未检测', [FL_PLAIN]: '普通', [FL_GLASSY]: '炫彩' }
+const ST_NAME = { [FL_UNDETECTED]: '未检测', [FL_PLAIN]: '普通', [FL_GLASSY]: '炫彩', [FL_SHINY]: '异色' }
 
-// flowerTitle 组一条花种标记的悬停说明:`火神 Lv.60 炫彩` / `铠甲虫 Lv.55 未检测`。
-// 等级后端按星级查表算好(花种列表一到就有,不必等检测);种族在花里的精灵被采收后会变成未知,
+// isMutated 报告这朵花里是不是异色或炫彩个体——开这层就是为了找它们。
+export const isMutated = (f) => f.st === FL_SHINY || f.st === FL_GLASSY
+
+// flowerTitle 组一条花种标记的悬停说明:`火神 Lv.60 异色·炫彩` / `铠甲虫 Lv.55 普通`。
+// 既异色又炫彩的两样都写出来——那是最稀罕的一种,拿一个盖掉另一个就把它藏起来了。
+// 等级后端按星级查表算好(花种列表一到就有);种族在花里的精灵被采收后会变成未知,
 // 那时退成「稀兽花种 Lv.55 未检测」。
 export function flowerTitle(f) {
   const parts = [f.n || '稀兽花种']
   if (f.lv) parts.push('Lv.' + f.lv)
-  parts.push(ST_NAME[f.st] || ST_NAME[FL_UNDETECTED])
+  if (f.st === FL_SHINY) parts.push(f.glass ? '异色·炫彩' : '异色')
+  else parts.push(ST_NAME[f.st] || ST_NAME[FL_UNDETECTED])
   return parts.join(' ')
 }
 
@@ -62,7 +70,7 @@ export function useFlowers(account, res) {
   // 花种只在有底图的大世界场景刷,进副本/家园时本层自然为空。
   const here = flowers.filter((f) => f.res === res)
   const marks = on ? here : []
-  const glassy = here.filter((f) => f.st === FL_GLASSY).length
+  const mutated = here.filter(isMutated).length
 
-  return { marks, num: here.length, glassy, visit, on, toggle }
+  return { marks, num: here.length, mutated, visit, on, toggle }
 }

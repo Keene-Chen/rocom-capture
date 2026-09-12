@@ -8,13 +8,18 @@ import (
 
 // 稀兽花种(实时地图页的花种图层,见 docs/map.md 8)。
 //
-// 一行 = 大世界上当前开着的一朵花。描述性列(位置/精灵/有效期)来自花种列表(0x0375),
-// 检测列(state/glass/lv)来自逐朵查询(0x0338),两边各写各的:重新收到列表时只覆盖描述列,
-// 已检测出的炫彩结果不受影响。
+// 一行 = 大世界上当前开着的一朵花。描述性列(位置/精灵/有效期)与变异列(state/glass)都来自
+// 花种列表(0x0375 全量 / 0x0376 增量);列表没带变异那一支时(旧服务器/异常)变异列留「未检测」,
+// 由逐朵查询(0x0338)补上——那时重新收到的列表只覆盖描述列,已检测出的结果不受影响。
+// **异色与炫彩可以同时成立**(游戏里就有既异色又炫彩的精灵),故这两件事分开记:
+// State 记异色与否(异色时取 FlowerShiny,与游戏内标记的取舍一致),Glass 记炫彩与否
+// ——**Glass 非空 ⇔ 炫彩**(查不到款式也会写个「炫彩」),所以 State=FlowerShiny 且 Glass 非空
+// 就是「既异色又炫彩」,读的一侧要把两者都表达出来,别拿一个盖掉另一个。
 const (
-	FlowerUndetected = 0 // 未检测:还没为这朵花收到过 0x0338
-	FlowerPlain      = 1 // 普通:检测过,glass_type = GT_NULL
-	FlowerGlassy     = 2 // 炫彩:检测过,glass_type != GT_NULL
+	FlowerUndetected = 0 // 未检测:这朵花既没随列表带来变异结果,也没收到过 0x0338
+	FlowerPlain      = 1 // 普通:非异色非炫彩
+	FlowerGlassy     = 2 // 炫彩(非异色):mutation_type 带 MDT_GLASS / glass_type != GT_NULL
+	FlowerShiny      = 3 // 异色:mutation_type 带 MDT_SHINING;是否同时炫彩看 Glass
 )
 
 // FlowerRow 是一朵花的完整状态(库内一行)。
@@ -28,11 +33,48 @@ type FlowerRow struct {
 	SpecID    uint32 `json:"-"`
 	EndTS     int64  `json:"endTs,omitempty"`
 	State     int    `json:"st"`
-	Glass     string `json:"glass,omitempty"` // 炫彩外观描述(仅 State=FlowerGlassy)
+	Glass     string `json:"glass,omitempty"` // 炫彩外观描述;非空 ⇔ 炫彩(异色个体同时炫彩时照记)
 }
 
-// ReplaceFlowers 按花种列表全量刷新:列表里的花 upsert 描述列(检测结果保留),
-// 不在列表里的行删除(那朵花已经刷掉了)。
+// flowerUpsertSQL upsert 一朵花。**state=0(未检测)不覆盖已有结果**:列表没带变异那一支时
+// 按未检测写进来,不该把 0x0338 检测出的炫彩擦掉;带了结果(1/2/3)则以列表为准覆盖。
+const flowerUpsertSQL = `INSERT INTO flower_seed(account, obj_id, cfg_id, star, petbase, content_id, spec_id, end_ts, state, glass, updated_at)
+	VALUES(?,?,?,?,?,?,?,?,?,?,?)
+	ON CONFLICT(account, obj_id) DO UPDATE SET
+		cfg_id=excluded.cfg_id, star=excluded.star, petbase=excluded.petbase,
+		content_id=excluded.content_id, spec_id=excluded.spec_id, end_ts=excluded.end_ts,
+		state=CASE WHEN excluded.state=0 THEN flower_seed.state ELSE excluded.state END,
+		glass=CASE WHEN excluded.state=0 THEN flower_seed.glass ELSE excluded.glass END,
+		updated_at=excluded.updated_at`
+
+// UpsertFlowers 按花种增量通知(0x0376)更新那几朵:**只增改不删**——通知只含变动的花,
+// 缺席的那些照旧开着(全量对账留给 ReplaceFlowers)。
+func (sc *Scoped) UpsertFlowers(rows []FlowerRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := sc.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	ins, err := tx.Prepare(flowerUpsertSQL)
+	if err != nil {
+		return err
+	}
+	defer ins.Close()
+	now := time.Now().Unix()
+	for _, r := range rows {
+		if _, err = ins.Exec(sc.account, strconv.FormatUint(r.ObjID, 10), r.CfgID, r.Star,
+			r.PetBase, r.ContentID, r.SpecID, r.EndTS, r.State, r.Glass, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ReplaceFlowers 按花种列表(0x0375)全量刷新:列表里的花 upsert,不在列表里的行删除
+// (那朵花已经刷掉了)。变异列的覆盖规则见 flowerUpsertSQL。
 func (sc *Scoped) ReplaceFlowers(rows []FlowerRow) error {
 	tx, err := sc.db.Begin()
 	if err != nil {
@@ -41,12 +83,7 @@ func (sc *Scoped) ReplaceFlowers(rows []FlowerRow) error {
 	defer tx.Rollback()
 	keep := make([]any, 0, len(rows)+1)
 	keep = append(keep, sc.account)
-	ins, err := tx.Prepare(`INSERT INTO flower_seed(account, obj_id, cfg_id, star, petbase, content_id, spec_id, end_ts, state, glass, updated_at)
-		VALUES(?,?,?,?,?,?,?,?,0,'',?)
-		ON CONFLICT(account, obj_id) DO UPDATE SET
-			cfg_id=excluded.cfg_id, star=excluded.star, petbase=excluded.petbase,
-			content_id=excluded.content_id, spec_id=excluded.spec_id, end_ts=excluded.end_ts,
-			updated_at=excluded.updated_at`)
+	ins, err := tx.Prepare(flowerUpsertSQL)
 	if err != nil {
 		return err
 	}
@@ -54,7 +91,8 @@ func (sc *Scoped) ReplaceFlowers(rows []FlowerRow) error {
 	now := time.Now().Unix()
 	for _, r := range rows {
 		id := strconv.FormatUint(r.ObjID, 10)
-		if _, err = ins.Exec(sc.account, id, r.CfgID, r.Star, r.PetBase, r.ContentID, r.SpecID, r.EndTS, now); err != nil {
+		if _, err = ins.Exec(sc.account, id, r.CfgID, r.Star, r.PetBase, r.ContentID,
+			r.SpecID, r.EndTS, r.State, r.Glass, now); err != nil {
 			return err
 		}
 		keep = append(keep, id)

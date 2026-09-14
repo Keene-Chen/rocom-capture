@@ -26,12 +26,19 @@ type homeEgg struct {
 	furniture uint64 // 所在小窝
 }
 
+// homeNest 是家园里的一件小窝家具,附上配置表里查到的名字与是否学院小窝。
+type homeNest struct {
+	scene.Nest
+	name    string
+	academy bool
+}
+
 // homeState 是一次家园停留期间的状态(离开家园即整体作废)。
 type homeState struct {
 	res       int32
 	level     uint32
 	roomLevel uint32
-	nests     []scene.Nest              // 只留小窝家具,按 guid 稳定排序
+	nests     []homeNest                // 只留小窝家具,按 guid 稳定排序
 	pets      map[uint64]*scene.HomePet // actor_id -> 入住宠物
 	eggs      map[uint64]*homeEgg       // actor_id -> 窝上的蛋
 	couples   map[uint64][]uint64       // 母本 actor -> 候选父本 actor(服务器下发)
@@ -60,6 +67,16 @@ func (h *homeState) petAt(guid uint64) (uint64, *scene.HomePet) {
 	return 0, nil
 }
 
+// academyNest 返回某个窝是否为学院小窝(与之配对产的蛋必定继承窝里那只的性格,见 docs/eggs.md)。
+func (h *homeState) academyNest(guid uint64) bool {
+	for _, n := range h.nests {
+		if n.GUID == guid {
+			return n.academy
+		}
+	}
+	return false
+}
+
 // eggAt 返回趴在某个窝上的蛋;没有返回 nil。
 func (h *homeState) eggAt(guid uint64) *homeEgg {
 	for _, e := range h.eggs {
@@ -82,8 +99,8 @@ func (p *Pipeline) onHomeSnapshot(conn, acc string, body []byte, res int32) bool
 		couples: map[uint64][]uint64{},
 	}
 	for _, n := range hi.Nests {
-		if _, isNest := p.db.NestFurniture(n.ConfigID); isNest {
-			h.nests = append(h.nests, n)
+		if nf, isNest := p.db.NestFurniture(n.ConfigID); isNest {
+			h.nests = append(h.nests, homeNest{Nest: n, name: nf.Name, academy: nf.Academy})
 		}
 	}
 	sort.Slice(h.nests, func(i, j int) bool { return h.nests[i].GUID < h.nests[j].GUID })
@@ -179,7 +196,9 @@ type nestMark struct {
 	V    float64 `json:"v"`
 	X    int32   `json:"x"`
 	Y    int32   `json:"y"`
-	Name string  `json:"name"` // 家具名(精灵小窝)
+	Name string  `json:"name"` // 家具名(精灵小窝 / 学院小窝)
+	// Academy 即学院小窝:与它配对产的蛋必定继承窝里那只的性格,地图上单独标出。
+	Academy bool `json:"academy,omitempty"`
 	// Pet 为空即空窝。
 	Pet *nestPet `json:"pet,omitempty"`
 	Egg *nestEgg `json:"egg,omitempty"`
@@ -232,8 +251,8 @@ func (p *Pipeline) pushHome(conn, acc string) {
 	marks := make([]nestMark, 0, len(h.nests))
 	for _, n := range h.nests {
 		u, v, _ := p.db.Project(uint32(h.res), n.Pos.X, n.Pos.Y)
-		name, _ := p.db.NestFurniture(n.ConfigID)
-		m := nestMark{ID: strconv.FormatUint(n.GUID, 10), U: u, V: v, X: n.Pos.X, Y: n.Pos.Y, Name: name}
+		m := nestMark{ID: strconv.FormatUint(n.GUID, 10), U: u, V: v, X: n.Pos.X, Y: n.Pos.Y,
+			Name: n.name, Academy: n.academy}
 		if actor, hp := h.petAt(n.GUID); hp != nil {
 			m.Pet = p.nestPetOf(sc, h, actor, hp)
 		}

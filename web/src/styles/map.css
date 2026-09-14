@@ -188,6 +188,9 @@
 }
 .map-nest.empty:hover { transform: translate(-50%, -50%) scale(1.15); filter: none; }
 .map-nest-empty { font-size: 11px; color: var(--fg-dim); }
+/* 学院小窝:描边换绿(游戏里就是个绿窝),空着也绿——「哪个窝是它」本身就是要看的信息。
+   必须写在 .map-nest.empty 之后,空窝那条的 border-color 才盖不掉它。 */
+.map-nest.academy { border-color: var(--green); }
 /* 窝上还没收的蛋:挂在右上角,略微出框 */
 .map-nest-egg {
   position: absolute; right: -8px; top: -8px;

@@ -107,6 +107,8 @@
 .egg-parent:hover .egg-parent-txt { color: var(--accent); }
 .egg-parent img { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; flex: none; }
 .egg-parent-noimg { width: 22px; text-align: center; flex: none; }
+/* 住学院小窝的亲本:头像加绿圈,与地图上的学院小窝标记同色(见 map.css 的 .map-nest.academy) */
+.egg-parent.academy img, .egg-parent.academy .egg-parent-noimg { box-shadow: 0 0 0 2px var(--green); border-radius: 50%; }
 .egg-parent-txt { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .egg-parent-ph2 { font-size: 12px; color: var(--fg-dim); padding-left: 2px; }
 .egg-amb { color: var(--gold); }

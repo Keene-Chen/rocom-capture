@@ -102,7 +102,7 @@ TCP 重组、flush 时钟、会话密钥共享等在 rocom-parse 的 `capture` �
 | `GET /api/wildpets` | 当前账号周围的稀有野生宠物标记(异色/炫彩、污染、最大/最小声音,地图页初始回显);同样已投影为 u/v(见 docs/map.md 5) |
 | `GET /api/paint` | 涂地覆盖位图(`?res=<scene_res>&layer=<分层 id,0=地表>`):`{w,h,cell,corridor,safe,cells}`,`cells` 是 w*h 位的位图 base64(1=已扫过);无大地图底图的场景回 `w=0`(见 docs/map.md 7) |
 | `DELETE /api/paint` | 重置该场景该层的涂地(同时广播 `paint:{reset:true}`,同账号其它页面一起清屏) |
-| `GET /api/home` | 家园的精灵小窝图层:每个窝的位置(已投影 u/v)、入住宠物简要信息与配对、窝上还没收的蛋;不在家园时 `nests` 为空(见 docs/eggs.md) |
+| `GET /api/home` | 家园的精灵小窝图层:每个窝的位置(已投影 u/v)、是否学院小窝、入住宠物简要信息与配对、窝上还没收的蛋;不在家园时 `nests` 为空(见 docs/eggs.md) |
 | `GET /api/eggs` | 背包里的精灵蛋(`search`、`sort=quality\|obtained`、`order`——复刻游戏内背包的两种排序);含蛋图/品类角标/尺寸百分位/百分位奖牌/获得时间/孵化进度/双亲快照 |
 | `GET /api/boxes` | 各盒子的槽位布局(`?account=`),供宠物列表左侧盒子示意图 |
 | `GET /api/teams` | 大世界三队的 18 格布局(`?account=`),同供盒子示意图 |

@@ -208,11 +208,12 @@ export default function MapPage() {
                 src={imgURL(f.icon)} title={flowerTitle(f)}
                 style={{ left: f.u * mapPx, top: f.v * mapPx }} />
             ))}
-            {/* 家园小窝:空窝画个虚线圈,住了宠物画头像;窝上有蛋则右上角挂个蛋图标。
+            {/* 家园小窝:空窝画个虚线圈,住了宠物画头像;窝上有蛋则右上角挂个蛋图标;
+                学院小窝(与之配对的蛋必定继承窝里那只的性格)描边换成绿色,与游戏里那个绿窝对应。
                 悬浮看简要信息(见 nestTitle),点住户看宠物详情。同属 .map-world 一起平移。 */}
             {home.marks.map((n) => (
               <div key={n.id} title={nestTitle(n)}
-                className={'map-nest' + (n.pet ? '' : ' empty')}
+                className={'map-nest' + (n.pet ? '' : ' empty') + (n.academy ? ' academy' : '')}
                 data-gid={n.pet ? n.pet.gid : undefined}
                 style={{ left: n.u * mapPx, top: n.v * mapPx }}>
                 {n.pet

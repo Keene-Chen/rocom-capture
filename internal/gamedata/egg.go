@@ -87,8 +87,16 @@ func (db *DB) EggConfInfo(conf uint32) (EggConf, bool) { c, ok := db.eggConf[con
 // EggNPCItem 返回家园小窝上蛋 NPC(NPC_CONF id)对应的蛋物品 id;非蛋 NPC 返回 0。
 func (db *DB) EggNPCItem(npcCfgID uint32) uint32 { return db.eggNPCs[npcCfgID] }
 
-// NestFurniture 返回该家具 config_id 是否为可入住宠物的小窝,以及家具名。
-func (db *DB) NestFurniture(cfgID uint32) (string, bool) { n, ok := db.nestFurn[cfgID]; return n, ok }
+// Nest 是一件能住宠物的小窝家具(FURNITURE_ITEM_CONF.interact_type==3)。
+// Academy 即精灵学分院的「学院小窝」(ACADEMY_PRIVILEGE_CONF 指定):与它配对产的蛋
+// 必定继承窝里那只的性格(见 docs/eggs.md)。
+type Nest struct {
+	Name    string `json:"n"`
+	Academy bool   `json:"academy"`
+}
+
+// NestFurniture 返回该家具 config_id 是否为可入住宠物的小窝,以及家具信息。
+func (db *DB) NestFurniture(cfgID uint32) (Nest, bool) { n, ok := db.nestFurn[cfgID]; return n, ok }
 
 // EggIcon 返回蛋图标的相对路径(egg/<原名>.webp);图标缺失时回退通用蛋图。
 // 少数未上线物种的蛋图没随包解出(gen_icons 会报「缺 PNG」),回退保证前端不出空图。

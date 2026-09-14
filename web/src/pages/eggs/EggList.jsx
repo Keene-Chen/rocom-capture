@@ -89,7 +89,7 @@ export default function EggList() {
 
 // EggCard 一颗蛋。布局固定(缺什么都留位置,免得同一行的卡片高低不齐):
 //   [蛋图] 名称 / 奖牌标签        [品类角标][孵出物种头像]
-//   重量 / 声音 / 高度 / 时间
+//   重量 / 声音 / 高度 / 性格 / 时间
 //   (在孵才有的进度条)
 //   双亲两行(非家园蛋留占位)
 function EggCard({ egg, now, onPet }) {
@@ -131,6 +131,12 @@ function EggCard({ egg, now, onPet }) {
             : '蛋上没有嗓音字段,双亲也没记下,破壳才知道'} />
         <Row k="高度" v={egg.heightM ? `${egg.heightM} m` : ''} pct={egg.heightPct}
           title={egg.adultHeightM ? `孵出后约 ${egg.adultHeightM} m(百分位破壳后原样保留)` : ''} />
+        <Row k="性格" v={natureText(egg)}
+          title={egg.natures?.length
+            ? (egg.natureSure
+              ? '双亲之一住学院小窝:蛋必定继承那只的性格'
+              : '性格有概率继承双亲之一,没中就另滚(「其他」);蛋上没有性格字段')
+            : '蛋上没有性格字段,双亲也没记下,破壳才知道'} />
         <Row k="时间" v={timeNode(egg.obtainedAt)} title={`获得时间 ${fmtTime(egg.obtainedAt)}`} />
       </div>
 
@@ -156,6 +162,13 @@ function voiceText(egg) {
   return egg.voiceMax != null ? `${egg.voice}~${egg.voiceMax}` : String(egg.voice)
 }
 
+// natureText 渲染推测性格:学院小窝(必定继承)只列那一个;否则列双亲各自的(去重)再加「其他」
+// (概率没中就另滚);推不出来时留空(由 Row 显示破折号)。
+function natureText(egg) {
+  if (!egg.natures?.length) return ''
+  return egg.natureSure ? egg.natures.join('/') : [...egg.natures, '其他'].join('/')
+}
+
 // timeNode 渲染获得时间。手机上背包是双列,整串「2026-08-16 03:46:45」放不下会被省略号
 // 咬掉分秒(而分秒正是「获取时间」排序看的东西),故把年份单独包一层,窄屏 CSS 藏掉即可
 // (见 eggs.css;鼠标悬停的 title 里仍是完整时间)。
@@ -178,6 +191,7 @@ function Row({ k, v, pct, title, hot }) {
 
 // Parents 双亲快照:母本确定(蛋趴在她的窝上),父本取服务器下发的配对候选,
 // 几个窝挨太近「串窝」时有多个候选、实际父本无从确定(见 docs/eggs.md)。
+// 住学院小窝的那只头像加绿圈(与地图上的小窝标记同色)——蛋的性格必定随它。
 // 非家园蛋没有双亲可言,留同样高度的占位,保证卡片等高。
 function Parents({ p, onPet }) {
   const rows = []
@@ -187,8 +201,9 @@ function Parents({ p, onPet }) {
     <div className="egg-parents">
       {rows.length === 0 && <div className="egg-parent-ph2">无双亲记录</div>}
       {rows.slice(0, 2).map(([role, x], i) => (
-        <button key={i} className="egg-parent" onClick={() => onPet(x.gid)}
+        <button key={i} className={'egg-parent' + (x.academy ? ' academy' : '')} onClick={() => onPet(x.gid)}
           title={`点击查看${role === '♀' ? '母本' : '父本'}详情(已放生也不影响这里的快照)` +
+            (x.academy ? ' · 住学院小窝:蛋必定继承它的性格' : '') +
             (p.ambiguous && role === '♂' ? ' · 串窝:父本不唯一' : '')}>
           {x.img ? <img src={imgURL(x.img)} alt="" draggable={false} /> : <span className="egg-parent-noimg">🐾</span>}
           <span className="egg-parent-txt">

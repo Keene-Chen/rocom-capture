@@ -30,12 +30,14 @@ export function useHomeNests(account) {
 //   点点 ♀ Lv.1 · W 90% V -50 急躁
 // W 是体重百分位、V 是嗓音原值,与野生宠物标记/事件页同一口径。
 // 只说住户:窝上有没有蛋看标记右上角那个蛋图标即可,不进这行。
+// 学院小窝末尾多一段「学院小窝:蛋必定继承其性格」——绿圈的含义就在这一句里。
 export function nestTitle(n) {
-  if (!n.pet) return `${n.name || '精灵小窝'}(空)`
+  const academy = n.academy ? `${n.name || '学院小窝'}:蛋必定继承其性格` : ''
+  if (!n.pet) return `${n.name || '精灵小窝'}(空)` + (academy ? ` · ${academy}` : '')
   const p = n.pet
   const who = [p.name || p.species, p.gender, p.level ? `Lv.${p.level}` : '']
   const stat = []
   if (p.weightPct != null) stat.push(`W ${Math.round(p.weightPct)}%`)
   stat.push(`V ${p.voice ?? 0}`, p.nature)
-  return [who, stat].map((g) => g.filter(Boolean).join(' ')).filter(Boolean).join(' · ')
+  return [who, stat, [academy]].map((g) => g.filter(Boolean).join(' ')).filter(Boolean).join(' · ')
 }

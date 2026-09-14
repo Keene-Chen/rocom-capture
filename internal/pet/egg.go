@@ -11,6 +11,7 @@ package pet
 
 import (
 	"math"
+	"slices"
 
 	"google.golang.org/protobuf/encoding/protowire"
 
@@ -274,6 +275,8 @@ type EggParent struct {
 	Voice     int32    `json:"voice"`
 	Nature    string   `json:"nature,omitempty"`
 	Talent    string   `json:"talentRank,omitempty"`
+	// Academy 即这只住在学院小窝里:蛋的性格必定随它(见 docs/eggs.md)。
+	Academy bool `json:"academy,omitempty"`
 }
 
 // EggParents 是一颗家园蛋的推测双亲。母本确定(蛋就趴在她的窝上);父本取服务器下发的
@@ -329,6 +332,12 @@ type EggView struct {
 	// 非家园蛋(没有双亲快照)推不出来,为 nil。串窝时父本不唯一,VoiceMax 给出区间上界。
 	Voice    *int32 `json:"voice,omitempty"`
 	VoiceMax *int32 `json:"voiceMax,omitempty"`
+
+	// Natures 是这颗蛋可能的性格(蛋上没有性格字段,只能从双亲推):双亲之一住学院小窝时
+	// **必定**是那只的性格,NatureSure=true;否则是双亲各自的性格(去重),还可能另滚一个
+	// (NatureSure=false,前端补「其他」)。非家园蛋推不出来,为空。见 docs/eggs.md。
+	Natures    []string `json:"natures,omitempty"`
+	NatureSure bool     `json:"natureSure,omitempty"`
 
 	// Medals 是这颗蛋确定能拿到的百分位奖牌(判不了的不进来)。读取时算(要等双亲快照挂上
 	// 才知道嗓音),见 FillEggDerived。
@@ -461,6 +470,7 @@ func FillEggDerived(v *EggView, db *gamedata.DB) {
 			v.VoiceMax = &hi
 		}
 	}
+	v.Natures, v.NatureSure = parentNatures(v.Parents)
 	weight := pctRange{}
 	if v.WeightPct != nil {
 		weight = pctRange{lo: *v.WeightPct, hi: *v.WeightPct, known: true}
@@ -492,6 +502,38 @@ func parentVoice(p *EggParents) (lo, hi int32, ok bool) {
 		}
 	}
 	return lo, hi, true
+}
+
+// parentNatures 从双亲推这颗蛋的性格候选(玩家实测规则,见 docs/eggs.md):
+//   - 双亲之一住学院小窝 → 必定继承那只的性格(sure=true,只列它);
+//   - 否则性格「有概率」继承双亲之一,没中就另滚 → 列双亲各自的性格(去重、母本在前),sure=false。
+//
+// 串窝时父本候选一并列入(哪只都可能)。亲本快照里没有性格(收蛋时宠物尚未入库)的跳过;
+// 一个都没有则返回 nil。学院小窝那只没记下性格时退回第二条(总不能什么都不显示)。
+func parentNatures(p *EggParents) (natures []string, sure bool) {
+	if p == nil || p.Mother == nil {
+		return nil, false
+	}
+	all := []EggParent{*p.Mother}
+	all = append(all, p.Fathers...)
+	add := func(list []string, n string) []string {
+		if n == "" || slices.Contains(list, n) {
+			return list
+		}
+		return append(list, n)
+	}
+	for _, x := range all {
+		if x.Academy {
+			natures = add(natures, x.Nature)
+		}
+	}
+	if len(natures) > 0 {
+		return natures, true
+	}
+	for _, x := range all {
+		natures = add(natures, x.Nature)
+	}
+	return natures, false
 }
 
 // pctRange 是某一维百分位的取值区间(串窝时嗓音只能给出区间);known=false 即这一维还不知道。

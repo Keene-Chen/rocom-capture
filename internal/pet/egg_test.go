@@ -1,6 +1,7 @@
 package pet
 
 import (
+	"slices"
 	"testing"
 
 	"google.golang.org/protobuf/encoding/protowire"
@@ -297,5 +298,36 @@ func TestBackpackHatchSlots(t *testing.T) {
 	// 没有背包的消息给不出快照(不能当成空孵蛋器去清标记)
 	if _, ok := BackpackHatchSlots(protowire.AppendVarint(protowire.AppendTag(nil, 1, protowire.VarintType), 7)); ok {
 		t.Error("无 PetBackpackInfo 不该判为有效快照")
+	}
+}
+
+func TestParentNatures(t *testing.T) {
+	mom := func(n string, academy bool) *EggParent { return &EggParent{Nature: n, Academy: academy} }
+	cases := []struct {
+		name string
+		p    *EggParents
+		want []string
+		sure bool
+	}{
+		{"非家园蛋", nil, nil, false},
+		{"父本住学院小窝:必定随父", &EggParents{Mother: mom("固执", false),
+			Fathers: []EggParent{{Nature: "胆小", Academy: true}}}, []string{"胆小"}, true},
+		{"母本住学院小窝:必定随母", &EggParents{Mother: mom("固执", true),
+			Fathers: []EggParent{{Nature: "胆小"}}}, []string{"固执"}, true},
+		{"双亲同性格", &EggParents{Mother: mom("固执", false),
+			Fathers: []EggParent{{Nature: "固执"}}}, []string{"固执"}, false},
+		{"双亲不同性格:母本在前", &EggParents{Mother: mom("固执", false),
+			Fathers: []EggParent{{Nature: "胆小"}}}, []string{"固执", "胆小"}, false},
+		{"串窝:候选父本都列", &EggParents{Mother: mom("固执", false), Ambiguous: true,
+			Fathers: []EggParent{{Nature: "胆小"}, {Nature: "急躁"}}}, []string{"固执", "胆小", "急躁"}, false},
+		{"父本未知:只有母本", &EggParents{Mother: mom("固执", false)}, []string{"固执"}, false},
+		{"学院那只没记下性格:退回概率口径", &EggParents{Mother: mom("固执", false),
+			Fathers: []EggParent{{Academy: true}}}, []string{"固执"}, false},
+	}
+	for _, c := range cases {
+		got, sure := parentNatures(c.p)
+		if !slices.Equal(got, c.want) || sure != c.sure {
+			t.Errorf("%s: parentNatures() = %v,%v, want %v,%v", c.name, got, sure, c.want, c.sure)
+		}
 	}
 }

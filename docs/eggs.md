@@ -23,7 +23,7 @@ rocom-parse 的 `gen_gamedata.py` 与 `gen_icons.py` 产出(`make gamedata`),生
 | 来源 | `egg_data.src`(`EggAcquireWayType`) | `EAWT_HOME=6` 牧场、`EAWT_BLESSING=5` 好友赐福、`EAWT_NONE=0` 其他(如商人处买的随机蛋) |
 | 赐福来源 | `from_player_name`/`from_pet_name`/`from_player_uin`/`from_pet_gid`/`from_pet_base_id`/`from_pet_conf_id` | 是**赐福/赠送**的来源玩家与其宠物(客户端文案「收到了来自{0}的精灵{1}的赐福」),**不是父母本**;牧场自产的蛋这些字段全空 |
 
-**没有的东西**:`PetEggBrief` 里**没有声音(voice)字段**,也没有性格/个体值 ——
+**没有的东西**:`PetEggBrief` 里**没有声音(voice)字段**,也没有性格/个体值(两者都只能从双亲推,见「学院小窝」一节)——
 `PET_EGG_CONF.voice_percent` 恒为 `[0,100]`(全范围),嗓音只能等破壳
 (该字段连同 `name`/`form`/`pet_bond_name` 都不发布,见下)。
 `mutation_type`(异色)/`glass_info`(炫彩)/`talent_rank`(天分)/`is_precious` 协议上有位置,
@@ -200,6 +200,41 @@ s2c 0x0243 ZoneGoodsRewardNotify{goods_reward.rewards{id=蛋物品, gids=新蛋 
 即「概率没中时另滚」。声音那条本仓库还没抓到反例,可证伪的预测是:大耳帽兜♀(-12) + 治愈兔♂(13)
 那窝的蛋应孵出 `voice = floor(0.5) = 0`。
 
+### 学院小窝:性格必定继承(2026-09-15 pcap)
+
+精灵学分院的特权家具「**学院小窝**」(`FURNITURE_ITEM_CONF` 1001072,游戏里是个绿色的窝,
+物品描述「据说对产出的精灵蛋有好的效果」)与普通精灵小窝(1001071)同样 `interact_type==3`、
+同样能住一只宠物、同样按摆放位置配对;区别只有一条(玩家告知):**与它配对产的蛋必定继承
+窝里那只的性格**,不再是普通窝的「有概率继承双亲之一、没中就另滚」。
+
+哪件家具是它不靠名字,取 `ACADEMY_PRIVILEGE_CONF` 里 `academy_id == AID_PET(1)` 且
+`academy_privilege_type == ACADEMY_PRIV_ADD_HOME_PETBED(1)` 那行的 `privilege_para1`
+(客户端 `AcademicPrivilegeModuleData:IsPetAcademyHomePetBed` 同一口径;每个家园最多摆一件,
+`Error_Code_3564`「家园室内摆放了学院小窝,需要先收回,才能转到其他学院」)。
+`gen_gamedata.py` 据此在 `nest_furniture` 里给它标 `academy: true`。
+
+协议上它与普通窝**毫无区别**:进场景快照里就是 `room_layout` 里 `config_id` 不同的一件家具,
+住户实体、`lay_egg_couple` 配对、蛋 NPC 的挂接一律照旧。这份 pcap 里的家园 11 个窝(10 精灵小窝
++ 1 学院小窝),学院小窝里住着一只 **幽星光♂(gid 40932,胆小)**,配对表里它同时是两只幽星光♀
+(40927 胆小、36429 急躁)的父本 —— 一只公的配两只母的,协议上就是两条 `female_couple` 指向
+同一个 `male_obj_id`,不算串窝(串窝是**一条**里 `male_obj_id` 重复多次)。
+这两窝产的蛋按规则都该是胆小;本份 pcap 里收的两颗蛋(矮脚爬爬、矿晶虫)都不来自这两窝,
+真实样本待补。
+
+页面上的落法:亲本快照多一个 `academy` 标记(收蛋那一刻按母本/父本各自所在的窝判),
+蛋卡片加一行「性格」,按能确定到什么程度分三种写法:
+
+| 情形 | 显示 | 例 |
+| --- | --- | --- |
+| 双亲之一住学院小窝 | 那只的性格,**不带**「其他」 | `胆小` |
+| 双亲已知、性格相同 | `AA/其他` | `固执/其他`(矿晶虫♀ 固执 + 嘟嘟煲♂ 固执) |
+| 双亲已知、性格不同 | `AA/BB/其他` | `固执/胆小/其他`(矮脚爬爬♀ 固执 + ♂ 胆小) |
+| 串窝 | 母本 + 各候选父本的性格去重后 + 其他 | |
+| 非家园蛋 / 没记下双亲 | `—` | |
+
+(`pet.parentNatures`;母本在前;学院小窝那只没记下性格时——收蛋时它还没入库——退回概率口径。)
+地图上学院小窝的描边换成绿色,精灵蛋页上住学院小窝的亲本头像也加同色绿圈。
+
 **声音为 0 有两个来源,别混为一谈**:牧场蛋是 `floor(双亲均值)`,双亲一正一负就容易收敛到 0;
 而**商店买的、活动送的蛋多数直接固定 0**(玩家告知)。3.6 前面那份统计(孵化 catch_way=3
 的宠物 71.9% 声音为 0,野捕只有 0.5%)是这两者叠加的结果,不能单独归因于任一条。
@@ -313,7 +348,7 @@ gid 单独返回,交给 `pipeline.removeEggs` 当场删行。三个条件一起�
 | --- | --- |
 | 品类角标 | `gen_icons.py` 的 egg 组另收 `EGG_TYPE_CONF.small_icon`(图集精灵,8 张:异色/炫彩/珍贵/唯一…) |
 | 蛋图 | `gen_icons.py` 的 **egg 组**:`BAG_ITEM_CONF` 里 `type==8` 的 `icon`(整张贴图)→ `img/egg/<原名>.webp`,326 个唯一图标转出 307(19 个未上线物种的贴图没随包解出,Go 侧回退 `egg_tongyong`) |
-| 索引 | `gen_gamedata.py` 五张表:`egg_conf`(物种蛋区间 + 孵化秒数 + 蛋品类)、`egg_items`(蛋物品 → 显示名/物种/图标/窝上 NPC id/品质/排序号)、`egg_types`(蛋品类 → 名称/排序号/角标)、`size_medals`(按百分位自动授予的四枚奖牌)、`nest_furniture`(小窝家具,按 `interact_type==3` 取,当前两件:精灵小窝 1001071、学院小窝 1001072) |
+| 索引 | `gen_gamedata.py` 五张表:`egg_conf`(物种蛋区间 + 孵化秒数 + 蛋品类)、`egg_items`(蛋物品 → 显示名/物种/图标/窝上 NPC id/品质/排序号)、`egg_types`(蛋品类 → 名称/排序号/角标)、`size_medals`(按百分位自动授予的四枚奖牌)、`nest_furniture`(小窝家具,按 `interact_type==3` 取,当前两件:精灵小窝 1001071、学院小窝 1001072,后者按 `ACADEMY_PRIVILEGE_CONF` 标 `academy`) |
 | 解析 | `internal/pet/egg.go`(BagItem+PetEggBrief、孵蛋器占用列表、破壳请求/回包、flow_reason、离包判定)、`internal/scene/home.go`(home_info 的家具与配对、home_pet 实体、蛋 NPC 的 attach_item) |
 | 入库 | `internal/store/egg.go` 的 `eggs` 表 = **背包现状**:蛋一行,`parents` 单列存**收蛋那一刻**的双亲快照(亲本被放生也不受影响);破壳/送人/背包对账不到的直接删行(页面只看背包,不留历史) |
 | 管线 | `internal/pipeline/eggs.go`(背包分页对账 + 收蛋/买蛋入库 + 孵蛋器占用订正 + 认领双亲 + 破壳/送人删行)、`internal/pipeline/home.go`(小窝图层的实时状态与推送) |

@@ -196,20 +196,23 @@ func (h *homeState) uniqueEggByItem(item uint32) *homeEgg {
 }
 
 // parentsOf 组一颗蛋的双亲快照:母本是窝里那只,父本取配对候选(多于一个即串窝,标 Ambiguous)。
+// 住在学院小窝里的那一方标 Academy——蛋的性格必定随它(见 docs/eggs.md)。
 func (p *Pipeline) parentsOf(sc *store.Scoped, h *homeState, furniture uint64, now time.Time) *pet.EggParents {
 	actor, mother := h.petAt(furniture)
 	if mother == nil {
 		return nil
 	}
-	out := &pet.EggParents{Mother: p.parentSnap(sc, mother.PetGid, mother.Name), RecordedAt: now.Unix()}
+	ms := p.parentSnap(sc, mother.PetGid, mother.Name)
+	ms.Academy = h.academyNest(furniture)
+	out := &pet.EggParents{Mother: ms, RecordedAt: now.Unix()}
 	for _, mate := range h.matesOf(actor) {
 		mp := h.pets[mate]
 		if mp == nil {
 			continue
 		}
-		if s := p.parentSnap(sc, mp.PetGid, mp.Name); s != nil {
-			out.Fathers = append(out.Fathers, *s)
-		}
+		s := p.parentSnap(sc, mp.PetGid, mp.Name)
+		s.Academy = h.academyNest(mp.Furniture)
+		out.Fathers = append(out.Fathers, *s)
 	}
 	out.Ambiguous = len(out.Fathers) > 1
 	return out

@@ -72,7 +72,7 @@ type DB struct {
 	eggNPCs    map[uint32]uint32  // 窝上蛋 NPC 的 NPC_CONF id -> 蛋物品 id
 	eggTypes   map[int32]EggType  // 蛋品类 precious_egg_type -> 名称/排序号/角标
 	sizeMedals []SizeMedal        // 按百分位自动授予的奖牌(体重两枚 + 嗓音两枚)
-	nestFurn   map[uint32]string  // 小窝家具 config_id -> 家具名(实测仅 1001071 精灵小窝)
+	nestFurn   map[uint32]Nest    // 小窝家具 config_id -> 家具(精灵小窝 / 学院小窝)
 }
 
 // Load 加载 embed 的名称表。
@@ -141,7 +141,7 @@ func Load() (*DB, error) {
 		} `json:"egg_items"`
 		EggTypes      map[string]EggType   `json:"egg_types"`
 		SizeMedals    []SizeMedal          `json:"size_medals"`
-		NestFurniture map[string]string    `json:"nest_furniture"`
+		NestFurniture map[string]Nest      `json:"nest_furniture"`
 		FlowerNpcs    map[string]FlowerNpc `json:"flower_npcs"`
 		Flowers       map[string][3]int32  `json:"flowers"` // 刷新行 id -> [res, x, y]
 		FlowerLevels  struct {
@@ -239,7 +239,7 @@ func Load() (*DB, error) {
 			eggTypes[int32(id)] = v
 		}
 	}
-	nestFurn := make(map[uint32]string, len(raw.NestFurniture))
+	nestFurn := make(map[uint32]Nest, len(raw.NestFurniture))
 	for k, v := range raw.NestFurniture {
 		if id, err := strconv.ParseUint(k, 10, 32); err == nil {
 			nestFurn[uint32(id)] = v

@@ -4,7 +4,7 @@ go 1.27
 
 require (
 	github.com/google/gopacket v1.1.19
-	github.com/whoisnian/rocom-parse v0.1.0
+	github.com/whoisnian/rocom-parse v0.1.2
 	google.golang.org/protobuf v1.36.12
 	modernc.org/sqlite v1.58.0
 )

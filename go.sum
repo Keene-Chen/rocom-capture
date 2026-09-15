@@ -16,8 +16,8 @@ github.com/ncruces/go-strftime v1.0.0 h1:HMFp8mLCTPp341M/ZnA4qaf7ZlsbTc+miZjCLOF
 github.com/ncruces/go-strftime v1.0.0/go.mod h1:Fwc5htZGVVkseilnfgOVb9mKy6w1naJmn9CehxcKcls=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec h1:W09IVJc94icq4NjY3clb7Lk8O1qJ8BdBEF8z0ibU0rE=
 github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec/go.mod h1:qqbHyh8v60DhA7CoWK5oRCqLrMHRGoxYCSS9EjAz6Eo=
-github.com/whoisnian/rocom-parse v0.1.0 h1:NURj2WDBmiTzTcCfN7UrFcFfU25hSAXzvs6snJAHnjo=
-github.com/whoisnian/rocom-parse v0.1.0/go.mod h1:u3zYi4VDhQwUqq6u/pgs8fDlEziHq9zEorqTfrgcYqw=
+github.com/whoisnian/rocom-parse v0.1.2 h1:3frh7DK03w/4zMyfbE9YBXePRyCG7hOgBqKHkYy9gO4=
+github.com/whoisnian/rocom-parse v0.1.2/go.mod h1:u3zYi4VDhQwUqq6u/pgs8fDlEziHq9zEorqTfrgcYqw=
 golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2/go.mod h1:djNgcEr1/C05ACkg1iLfiJU5Ep61QUkGW8qpdssI0+w=
 golang.org/x/crypto v0.0.0-20191011191535-87dc89f01550/go.mod h1:yigFU9vqHzYiE8UmvKecakEJjdnWj3jj499lnFckfCI=
 golang.org/x/lint v0.0.0-20200302205851-738671d3881b/go.mod h1:3xt1FjdF8hUf6vQPIChWIBhFzV8gjjsPE/fR3IyQdNY=

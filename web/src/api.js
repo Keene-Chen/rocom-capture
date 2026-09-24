@@ -72,6 +72,9 @@ export const getNameOptions = () => getJSON('/api/name-options', { nature: [], s
 // 不随宠物/账号变化,App 启动时拉一次经 IconsContext 分发。
 export const getIcons = () => getJSON('/api/icons')
 
+// getConfig 返回启动参数给的页面配置({petsURL?},见 server.Options)。
+export const getConfig = () => getJSON('/api/config')
+
 // getAccounts 返回已知账号列表 [{account,name,petCount}](账号切换下拉用)。
 export const getAccounts = () => getJSON('/api/accounts')
 

@@ -173,6 +173,11 @@ func (s *Server) handleIcons(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.icons)
 }
 
+// handleConfig 返回启动参数给的页面配置(见 Options)。
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.opts)
+}
+
 // handleBoxes 返回各盒子的槽位布局,供宠物列表左侧盒子示意图。
 func (s *Server) handleBoxes(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, s.store.For(s.acct(r)).BoxLayouts())

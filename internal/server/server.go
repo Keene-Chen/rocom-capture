@@ -36,6 +36,15 @@ type Server struct {
 	visitFlowers map[string]visitFlowerSet
 
 	paint paintState // 涂地覆盖位图(自带锁,见 paint.go)
+
+	opts Options
+}
+
+// Options 是经启动参数交给前端的页面配置(GET /api/config)。
+type Options struct {
+	// PetsURL 是本机桌宠 rocom-pets 的本地监听(如 http://127.0.0.1:47831)。由**看页面的那台浏览器**
+	// 去连,127.0.0.1 指的是浏览器所在的机器而不是网关。空 = 前端不探测,炫彩色卡只跳 rkpet。
+	PetsURL string `json:"petsURL,omitempty"`
 }
 
 // iconMeta 是全局固定图标(每只宠物都一样,不随宠物下发):六维属性小图 + 异色/炫彩/污染标记图。
@@ -51,8 +60,8 @@ type iconMeta struct {
 }
 
 // New 创建 HTTP 服务。
-func New(st *store.Store, hub *Hub, db *gamedata.DB) *Server {
-	s := &Server{store: st, hub: hub, mux: http.NewServeMux(), db: db, medals: db.AllMedals()}
+func New(st *store.Store, hub *Hub, db *gamedata.DB, opts Options) *Server {
+	s := &Server{store: st, hub: hub, mux: http.NewServeMux(), db: db, medals: db.AllMedals(), opts: opts}
 	s.lastPos = map[string]map[string]any{}
 	s.lastWild = map[string]any{}
 	s.lastHome = map[string]any{}
@@ -99,6 +108,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/medals", s.handleMedals)
 	s.mux.HandleFunc("GET /api/name-options", s.handleNameOptions)
 	s.mux.HandleFunc("GET /api/icons", s.handleIcons)
+	s.mux.HandleFunc("GET /api/config", s.handleConfig)
 	s.mux.HandleFunc("GET /api/boxes", s.handleBoxes)
 	s.mux.HandleFunc("GET /api/teams", s.handleTeams)
 	s.mux.HandleFunc("GET /api/evolution", s.handleEvolution)

@@ -7,6 +7,7 @@ import Events from './pages/events/Events'
 import PetDetail from './pages/PetDetail'
 import MapPage from './pages/map/MapPage'
 import EggList from './pages/eggs/EggList'
+import { probePets } from './pets'
 // 样式按「基础 → 壳 → 共用面板/部件 → 各页」顺序引入(同名选择器的层叠顺序有意义)。
 import './styles/base.css'
 import './styles/shell.css'
@@ -17,6 +18,9 @@ import './styles/events.css'
 import './styles/eggs.css'
 import './styles/detail.css'
 import './styles/map.css'
+
+// 页面打开时探一次本机桌宠(色卡据此决定唤起桌宠预览还是跳 rkpet,见 pets.js)。
+probePets()
 
 createRoot(document.getElementById('root')).render(
   <React.StrictMode>

@@ -1,5 +1,6 @@
-import React from 'react'
+import React, { useSyncExternalStore } from 'react'
 import { imgURL } from './icons'
+import { openPetsPreview, petsAvailable, subscribePets } from '../pets'
 
 // 炫彩色卡:复刻游戏内点开炫彩标记弹出的那张小卡(客户端 UMG_Pet_DazzlingTips_C),
 // 素材与配色由后端 gamedata.GlassCard 下发(素材见 rocom-parse docs/data.md 的炫彩段)。两种画法:
@@ -34,10 +35,12 @@ function rkpetURL(p) {
 // GlassCard 色卡,摆在详情页身份区(昵称行 + 天分/系别行)的右侧,竖向跨这两行。
 // 界面上只留卡,**提示也只说点了会怎样**:外观名与赛季归属由左边名称行那枚炫彩标记
 // (badges.jsx 的 Marks)负责,这里再写一遍就是同一句话挂两处。
-// 点击跳 rkpet 看同一套炫彩的 3D 效果——**只是个普通链接**,不点就不会有任何外部请求
-// (这是个局域网工具,没网也照常用);链接给不出时(老库缺 glass_info 编号)连提示也不给。
-// 缺素材时不渲染。
+// 点击看同一套炫彩的 3D 效果,两条路(见 pets.js):
+//   本机桌宠在监听 → 拦下链接,叫桌宠开预览窗口;叫不动就当场退回 rkpet 链接;
+//   否则 → 就是个跳 rkpet 的普通链接,不点不会有任何外部请求(这是个局域网工具,没网也照常用)。
+// 链接给不出时(老库缺 glass_info 编号)两条路都不走,连提示也不给。缺素材时不渲染。
 export function GlassCard({ p }) {
+  const local = useSyncExternalStore(subscribePets, petsAvailable)
   const g = p && p.glass
   if (!g || !g.card) return null
   const href = rkpetURL(p)
@@ -49,8 +52,13 @@ export function GlassCard({ p }) {
     </>
   )
   if (!href) return <div className="glass-card">{layers}</div>
+  // 回退时的 window.open 在 await 之后:本机回环一般几毫秒就回,仍在点击的临时激活窗口内,不会被当弹窗拦。
+  const onClick = local ? async (e) => {
+    e.preventDefault()
+    if (!(await openPetsPreview(p))) window.open(href, '_blank', 'noopener,noreferrer')
+  } : undefined
   return (
-    <a className="glass-card" href={href} target="_blank" rel="noopener noreferrer"
-      title="跳转到 rkpet 查看效果">{layers}</a>
+    <a className="glass-card" href={href} target="_blank" rel="noopener noreferrer" onClick={onClick}
+      title={local ? '在桌宠中预览' : '跳转到 rkpet 查看效果'}>{layers}</a>
   )
 }

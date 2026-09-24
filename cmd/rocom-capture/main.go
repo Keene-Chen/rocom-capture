@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"strings"
 
 	"github.com/whoisnian/rocom-capture/internal/gamedata"
@@ -26,6 +27,7 @@ func main() {
 	useTLS := flag.Bool("tls", false, "启用 HTTPS(自签证书;手机经局域网访问以满足屏幕常亮等需 secure context 的 API)")
 	certPath := flag.String("cert", "rocom-cert.pem", "TLS 证书路径(-tls 时不存在则自动生成自签证书)")
 	keyPath := flag.String("key", "rocom-key.pem", "TLS 私钥路径(-tls 时不存在则自动生成)")
+	petsURL := flag.String("pets-url", "", "本机桌宠 rocom-pets 的本地监听(如 http://127.0.0.1:47831);由看页面的浏览器去连,通了则炫彩色卡唤起桌宠预览。不设则不探测")
 	flag.Parse()
 
 	db, err := gamedata.Load()
@@ -36,7 +38,11 @@ func main() {
 	if err != nil {
 		log.Fatalf("打开数据库失败: %v", err)
 	}
-	srv := server.New(st, server.NewHub(), db)
+	pets := strings.TrimRight(*petsURL, "/")
+	if u, err := url.Parse(pets); pets != "" && (err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "") {
+		log.Fatalf("-pets-url 要是 http(s)://host:port 形式: %q", *petsURL)
+	}
+	srv := server.New(st, server.NewHub(), db, server.Options{PetsURL: pets})
 	eng := capture.NewEngine(*port)
 	eng.Keys = st // 会话密钥持久化:抓包服务重启后继续解密仍存活的连接
 	for s := range strings.SplitSeq(*ignoreIPs, ",") {

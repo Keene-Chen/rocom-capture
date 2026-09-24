@@ -684,7 +684,9 @@ canvas 则连缩放都是浏览器的事。
 `glass_info{glass_type: GT_NULL}`,而 `mutation_type` 为 0 时按 proto2 省略。故解析以
 `glass_info` 在不在为准(`FlowerSeed.HasMutation`):在 ⇒ 这次下发带变异结果,`mutation_type`
 缺省即普通;不在 ⇒ 这朵花什么都不知道,留「未检测」等 `0x0338` 兜底。实测
-`rocom-20260913-004824` 的 23 朵条条都带 `glass_info{GT_NULL}`,回放后落库全是「普通」。
+`rocom-20260913-004824` 的 23 朵条条都带 `glass_info{GT_NULL}`,回放后落库全是「普通」;
+`rocom-20260923-224110` 里命定花种 700005 装着异色智辉章脑,只它一朵带 `mutation_type: 1`
+(`glass_info` 仍是 `GT_NULL`),回放后落库 `state=3`、`glass` 空,地图上金圈标出、悬浮「异色」。
 
 `0x0338` 只作兜底:炫彩看 `battle_npc_glass_info`、异色看 `battle_npc_shiny`(#28),而后者
 三份 pcap **一次都没下发过**(bool 为 false 时省略),所以这条路上判出的「非异色」只是「没说」
